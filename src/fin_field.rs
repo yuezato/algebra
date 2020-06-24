@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 #[derive(Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
-struct GF_2 {
+pub struct GF_2 {
     // true = 1, false = 0
     value: bool,    
 }
@@ -22,7 +22,7 @@ impl GF_2 {
     const ONE:  GF_2 = GF_2 { value: true };
     
     fn add_inv(&self) -> GF_2 {
-        self.clone()
+        *self
     }
     fn mul_inv(&self) -> GF_2 {
         GF_2::ONE
@@ -41,6 +41,7 @@ impl Add for GF_2 {
     type Output = GF_2;
 
     // XOR
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn add(self, rhs: GF_2) -> GF_2 {
         let value = self.value ^ rhs.value;
         GF_2 { value }
@@ -50,6 +51,7 @@ impl Add for GF_2 {
 impl Sub for GF_2 {
     type Output = GF_2;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, rhs: GF_2) -> GF_2 {
         self + rhs.add_inv()
     }
@@ -59,6 +61,7 @@ impl Mul for GF_2 {
     type Output = GF_2;
 
     // AND
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn mul(self, rhs: GF_2) -> GF_2 {
         let value = self.value & rhs.value;
         GF_2 { value }
@@ -68,6 +71,7 @@ impl Mul for GF_2 {
 impl Div for GF_2 {
     type Output = GF_2;
 
+    #[allow(clippy::suspicious_arithmetic_impl)]
     fn div(self, rhs: GF_2) -> GF_2 {
         self * rhs.mul_inv()
     }
