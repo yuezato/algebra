@@ -1,12 +1,12 @@
 use crate::field::*;
-use std::ops::{Add, Sub, Mul, Div};
 use std::fmt::Debug;
+use std::ops::{Add, Div, Mul, Sub};
 
 #[derive(Clone, Copy, Debug)]
 #[allow(non_camel_case_types)]
 pub struct GF_2 {
     // true = 1, false = 0
-    value: bool,    
+    value: bool,
 }
 
 /*
@@ -19,8 +19,8 @@ pub struct GF_2 {
  */
 impl GF_2 {
     const ZERO: GF_2 = GF_2 { value: false };
-    const ONE:  GF_2 = GF_2 { value: true };
-    
+    const ONE: GF_2 = GF_2 { value: true };
+
     fn add_inv(&self) -> GF_2 {
         *self
     }
@@ -35,7 +35,6 @@ impl PartialEq for GF_2 {
     }
 }
 impl Eq for GF_2 {}
-    
 
 impl Add for GF_2 {
     type Output = GF_2;
@@ -89,14 +88,13 @@ impl Field for GF_2 {
     }
 }
 
-pub trait FiniteField: Field
-{
+pub trait FiniteField: Field {
     fn enumerate() -> Vec<Self>;
 }
 
 impl FiniteField for GF_2 {
     fn enumerate() -> Vec<Self> {
-        vec![ GF_2::ZERO, GF_2::ONE ]
+        vec![GF_2::ZERO, GF_2::ONE]
     }
 }
 
@@ -114,8 +112,7 @@ mod tests {
         check_mul_inv::<GF_2>();
     }
 
-    fn check_add_inv<F: FiniteField>() where
-    {
+    fn check_add_inv<F: FiniteField>() {
         for e in F::enumerate() {
             let inv = (&e).add_inv();
             assert_eq!(e + inv, F::ZERO);

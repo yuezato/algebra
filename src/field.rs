@@ -1,5 +1,5 @@
-use std::ops::{Add, Sub, Mul, Div};
 use std::fmt::Debug;
+use std::ops::{Add, Div, Mul, Sub};
 
 /*
  * impl<T : Field> ops::Add<T> for T {
@@ -19,11 +19,17 @@ use std::fmt::Debug;
  * 値は積極的にCloneする方向を考える。
  * 参照: https://stackoverflow.com/questions/50660911/
  */
-pub trait Field: Add<Output=Self>
-    + Sub<Output=Self>
-    + Mul<Output=Self>
-    + Div<Output=Self>
-    + Copy +  Clone + Debug + Eq + PartialEq + Sized
+pub trait Field:
+    Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
+    + Copy
+    + Clone
+    + Debug
+    + Eq
+    + PartialEq
+    + Sized
 {
     /*
      * the element 0 s.t.
