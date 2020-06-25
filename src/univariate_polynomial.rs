@@ -28,6 +28,10 @@ impl<F: Field> PartialEq for Poly<F> {
 impl<F: Field> Eq for Poly<F> {}
 
 impl<F: Field> Poly<F> {
+    pub fn iter(&self) -> impl std::iter::Iterator<Item = (&u32, &F)> {
+        self.inner.iter()
+    }
+
     fn add_inv(&self) -> Self {
         let mut p = BTreeMap::new();
 
@@ -102,7 +106,7 @@ impl<F: Field> Poly<F> {
         Poly { inner: b }
     }
 
-    fn from_mono(deg: u32, coeff: F) -> Self {
+    pub fn from_mono(deg: u32, coeff: F) -> Self {
         let mut b = BTreeMap::new();
         b.insert(deg, coeff);
         Poly { inner: b }
