@@ -150,7 +150,7 @@ impl GF_2_16 {
     }
 
     pub fn ppoly(self) -> Poly<GF_2> {
-        self.ppoly.clone()
+        self.ppoly
     }
 
     pub fn mul(self, p: u16, q: u16) -> u16 {
