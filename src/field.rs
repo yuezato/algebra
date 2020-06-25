@@ -1,5 +1,5 @@
 use std::fmt::Debug;
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 /*
  * impl<T : Field> ops::Add<T> for T {
@@ -23,6 +23,7 @@ pub trait Field:
     Add<Output = Self>
     + Sub<Output = Self>
     + Mul<Output = Self>
+    + Neg<Output = Self>
     + Div<Output = Self>
     + Copy
     + Clone
@@ -44,6 +45,5 @@ pub trait Field:
      */
     const ONE: Self;
 
-    fn add_inv(&self) -> Self;
     fn mul_inv(&self) -> Self;
 }

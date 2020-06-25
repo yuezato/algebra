@@ -1,7 +1,7 @@
 use crate::field::*;
 use crate::univariate_polynomial::*;
 use std::fmt::Debug;
-use std::ops::{Add, Div, Mul, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 pub trait FiniteField: Field {
     fn enumerate() -> Vec<Self>;
@@ -30,9 +30,6 @@ impl GF_2 {
     const ZERO: GF_2 = GF_2 { value: false };
     const ONE: GF_2 = GF_2 { value: true };
 
-    fn add_inv(&self) -> GF_2 {
-        *self
-    }
     fn mul_inv(&self) -> GF_2 {
         GF_2::ONE
     }
@@ -56,12 +53,20 @@ impl Add for GF_2 {
     }
 }
 
+impl Neg for GF_2 {
+    type Output = GF_2;
+
+    fn neg(self) -> GF_2 {
+        self
+    }
+}
+
 impl Sub for GF_2 {
     type Output = GF_2;
 
     #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, rhs: GF_2) -> GF_2 {
-        self + rhs.add_inv()
+        self + (-rhs)
     }
 }
 
@@ -89,9 +94,6 @@ impl Field for GF_2 {
     const ZERO: GF_2 = GF_2::ZERO;
     const ONE: GF_2 = GF_2::ONE;
 
-    fn add_inv(&self) -> Self {
-        self.add_inv()
-    }
     fn mul_inv(&self) -> Self {
         self.mul_inv()
     }
@@ -197,8 +199,7 @@ mod tests {
 
     fn check_add_inv<F: FiniteField>() {
         for e in F::enumerate() {
-            let inv = (&e).add_inv();
-            assert_eq!(e + inv, F::ZERO);
+            assert_eq!(e + (-e), F::ZERO);
         }
     }
 

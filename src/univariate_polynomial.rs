@@ -1,6 +1,6 @@
 use crate::field::*;
 use std::collections::BTreeMap;
-use std::ops::{Add, Div, Mul, Rem, Sub};
+use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 /*
  * 1変数多項式を定義する。
@@ -30,16 +30,6 @@ impl<F: Field> Eq for Poly<F> {}
 impl<F: Field> Poly<F> {
     pub fn iter(&self) -> impl std::iter::Iterator<Item = (&u32, &F)> {
         self.inner.iter()
-    }
-
-    fn add_inv(&self) -> Self {
-        let mut p = BTreeMap::new();
-
-        for (deg, coeff) in self.inner.iter() {
-            p.insert(*deg, coeff.add_inv());
-        }
-
-        Poly { inner: p }
     }
 
     fn at(&self, degree: &u32) -> F {
@@ -176,13 +166,27 @@ impl<F: Field> Add for Poly<F> {
     }
 }
 
+impl<F: Field> Neg for Poly<F> {
+    type Output = Poly<F>;
+
+    fn neg(self) -> Self {
+        let mut p = BTreeMap::new();
+
+        for (deg, coeff) in self.inner.iter() {
+            p.insert(*deg, -*coeff);
+        }
+
+        Poly { inner: p }
+    }
+}
+
 impl<F: Field> Sub for Poly<F> {
     type Output = Poly<F>;
 
     // p - q = p + (-q)
     #[allow(clippy::suspicious_arithmetic_impl)]
     fn sub(self, rhs: Self) -> Poly<F> {
-        self + rhs.add_inv()
+        self + (-rhs)
     }
 }
 
