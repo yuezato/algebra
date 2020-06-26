@@ -12,7 +12,8 @@ use std::ops::{Index, IndexMut, Mul};
 
 for 0 <= i <= h-1, 0 <= j <= w-1,
 M.at(i, j) equals a_ij
-*/
+ */
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Matrix<F: Field> {
     width: usize,
     height: usize,
@@ -45,7 +46,7 @@ impl<F: Field> Matrix<F> {
     /*
      * x-行ベクトルとy-行ベクトルを入れ替える
      */
-    pub fn swap(&mut self, x: usize, y: usize) {
+    pub fn swap_column(&mut self, x: usize, y: usize) {
         self.inner.swap(x, y);
     }
 
@@ -57,10 +58,7 @@ impl<F: Field> Matrix<F> {
     pub fn inverse(&mut self) -> Option<Matrix<F>> {
         assert!(self.width() == self.height());
 
-        let mut m = Matrix::new(MatrixSize {
-            height: self.height(),
-            width: self.width(),
-        });
+        let mut m = Self::identity(self.height());
 
         for i in 0..self.height() {
             // 軸変換
@@ -68,19 +66,22 @@ impl<F: Field> Matrix<F> {
                 // この対角成分では掃き出しできないので
                 // 他の非零値を下降方向で探す
 
+                let mut found: bool = false;
                 for y in i + 1..self.height() {
                     if self[y][i] != F::ZERO {
                         // i-行ベクトルと y-行ベクトルを入れ替える
-                        self.swap(i, y);
-                        m.swap(i, y);
-                        break;
+                        self.swap_column(i, y);
+                        m.swap_column(i, y);
+                        found = true;
                     }
                 }
 
                 // 交換可能な相手がいない場合は
                 // この行列が正則行列でないことになるので
                 // Noneを返す。
-                return None;
+                if !found {
+                    return None;
+                }
             }
 
             // 正規化
@@ -110,7 +111,7 @@ impl<F: Field> Matrix<F> {
     }
 
     /*
-     * Make the zero matrix
+     * Make the zero matrix with the given size
      */
     pub fn new(size: MatrixSize) -> Matrix<F> {
         let v = vec![Vecteur::new(size.width); size.height];
@@ -123,13 +124,28 @@ impl<F: Field> Matrix<F> {
     }
 
     /*
+     * Make the identity matrix with the argument
+     */
+    pub fn identity(size: usize) -> Matrix<F> {
+        let mut m = Matrix::new(MatrixSize {
+            height: size,
+            width: size,
+        });
+
+        for i in 0..size {
+            m[i][i] = F::ONE;
+        }
+
+        m
+    }
+
+    /*
      * M.get(x, y) は x番目の行ベクトルのy番目の値
      * 例.
-     *  16           2           3          13
-     *   5          11          10           8
-     *   9           7           6          12
-     *   4          14          15           1
-     * なる(4, 4)行列 Aについて
+     *   1           2           3           4
+     *   5           6           7           8
+     *   9          10          11          12
+     * なる(3, 4)行列 Aについて
      * A(2, 4)は8である
      */
     pub fn get(&self, i: usize, j: usize) -> Option<F> {
@@ -199,5 +215,287 @@ impl<F: Field> Mul for &Matrix<F> {
         }
 
         m
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::fin_field::*;
+
+    type MGF2 = Matrix<GF_2>;
+
+    /*
+     * 0 1 0 1
+     * 1 0 1 0
+     * 1 1 1 1
+     */
+    fn test_matrix1() -> MGF2 {
+        let o = GF_2::ZERO;
+        let l = GF_2::ONE;
+        let mut m = Matrix::new(MatrixSize {
+            height: 3,
+            width: 4,
+        });
+
+        m[0][0] = o;
+        m[0][1] = l;
+        m[0][2] = o;
+        m[0][3] = l;
+        m[1][0] = l;
+        m[1][1] = o;
+        m[1][2] = l;
+        m[1][3] = o;
+        m[2][0] = l;
+        m[2][1] = l;
+        m[2][2] = l;
+        m[2][3] = l;
+
+        return m;
+    }
+
+    /*
+     * 0 1 0
+     * 1 0 0
+     * 0 0 1
+     */
+    fn test_matrix2() -> MGF2 {
+        let o = GF_2::ZERO;
+        let l = GF_2::ONE;
+        let mut m = Matrix::new(MatrixSize {
+            height: 3,
+            width: 3,
+        });
+
+        m[0][0] = o;
+        m[0][1] = l;
+        m[0][2] = o;
+        m[1][0] = l;
+        m[1][1] = o;
+        m[1][2] = o;
+        m[2][0] = o;
+        m[2][1] = o;
+        m[2][2] = l;
+
+        return m;
+    }
+
+    /*
+     * 0 0 1
+     * 0 1 0
+     * 1 0 0
+     */
+    fn test_matrix3() -> MGF2 {
+        let o = GF_2::ZERO;
+        let l = GF_2::ONE;
+        let mut m = Matrix::new(MatrixSize {
+            height: 3,
+            width: 3,
+        });
+
+        m[0][0] = o;
+        m[0][1] = o;
+        m[0][2] = l;
+        m[1][0] = o;
+        m[1][1] = l;
+        m[1][2] = o;
+        m[2][0] = l;
+        m[2][1] = o;
+        m[2][2] = o;
+
+        return m;
+    }
+
+    /*
+     * 0 1 0
+     * 0 0 1
+     * 1 0 0
+     */
+    fn test_matrix4() -> MGF2 {
+        let o = GF_2::ZERO;
+        let l = GF_2::ONE;
+        let mut m = Matrix::new(MatrixSize {
+            height: 3,
+            width: 3,
+        });
+
+        m[0][0] = o;
+        m[0][1] = l;
+        m[0][2] = o;
+        m[1][0] = o;
+        m[1][1] = o;
+        m[1][2] = l;
+        m[2][0] = l;
+        m[2][1] = o;
+        m[2][2] = o;
+
+        return m;
+    }
+
+    /*
+     * 0 0 1
+     * 1 0 0
+     * 0 1 0
+     */
+    fn test_matrix5() -> MGF2 {
+        let o = GF_2::ZERO;
+        let l = GF_2::ONE;
+        let mut m = Matrix::new(MatrixSize {
+            height: 3,
+            width: 3,
+        });
+
+        m[0][0] = o;
+        m[0][1] = o;
+        m[0][2] = l;
+        m[1][0] = l;
+        m[1][1] = o;
+        m[1][2] = o;
+        m[2][0] = o;
+        m[2][1] = l;
+        m[2][2] = o;
+
+        return m;
+    }
+
+    /*
+     * 1 0 0
+     * 0 0 1
+     * 0 1 0
+     */
+    fn test_matrix6() -> MGF2 {
+        let o = GF_2::ZERO;
+        let l = GF_2::ONE;
+        let mut m = Matrix::new(MatrixSize {
+            height: 3,
+            width: 3,
+        });
+
+        m[0][0] = l;
+        m[0][1] = o;
+        m[0][2] = o;
+        m[1][0] = o;
+        m[1][1] = o;
+        m[1][2] = l;
+        m[2][0] = o;
+        m[2][1] = l;
+        m[2][2] = o;
+
+        return m;
+    }
+
+    #[test]
+    fn height_test() {
+        let m = test_matrix1();
+        assert_eq!(m.height(), 3);
+        assert_eq!(MGF2::identity(4).height(), 4);
+    }
+
+    #[test]
+    fn width_test() {
+        let m = test_matrix1();
+        assert_eq!(m.width(), 4);
+        assert_eq!(MGF2::identity(4).width(), 4);
+    }
+
+    fn make_by_swap<F: Field>(m: &Matrix<F>, i: usize, j: usize) -> Matrix<F> {
+        let mut m = m.clone();
+        m.swap_column(i, j);
+        m
+    }
+
+    #[test]
+    fn swap_column_test() {
+        let i = MGF2::identity(3);
+        let a = test_matrix2();
+        let b = test_matrix3();
+
+        assert_eq!(make_by_swap(&i, 0, 1), a);
+        assert_eq!(make_by_swap(&i, 1, 0), a);
+        assert_eq!(make_by_swap(&a, 0, 1), i);
+        assert_eq!(make_by_swap(&a, 1, 0), i);
+
+        assert_eq!(make_by_swap(&i, 0, 2), b);
+        assert_eq!(make_by_swap(&i, 2, 0), b);
+        assert_eq!(make_by_swap(&b, 0, 2), i);
+        assert_eq!(make_by_swap(&b, 2, 0), i);
+    }
+
+    #[test]
+    fn column_vec_test() {
+        let m = MGF2::identity(3);
+        let v1 = Vecteur::from_vec(vec![GF_2::ONE, GF_2::ZERO, GF_2::ZERO]);
+        let v2 = Vecteur::from_vec(vec![GF_2::ZERO, GF_2::ONE, GF_2::ZERO]);
+        let v3 = Vecteur::from_vec(vec![GF_2::ZERO, GF_2::ZERO, GF_2::ONE]);
+
+        assert_eq!(m.column_vec(0), &v1);
+        assert_eq!(m.column_vec(1), &v2);
+        assert_eq!(m.column_vec(2), &v3);
+    }
+
+    #[test]
+    fn row_vec_test() {
+        let m = MGF2::identity(3);
+        let v1 = Vecteur::from_vec(vec![GF_2::ONE, GF_2::ZERO, GF_2::ZERO]);
+        let v2 = Vecteur::from_vec(vec![GF_2::ZERO, GF_2::ONE, GF_2::ZERO]);
+        let v3 = Vecteur::from_vec(vec![GF_2::ZERO, GF_2::ZERO, GF_2::ONE]);
+
+        assert_eq!(m.row_vec(0), v1);
+        assert_eq!(m.row_vec(1), v2);
+        assert_eq!(m.row_vec(2), v3);
+    }
+
+    #[test]
+    fn matrix_product_test() {
+        let i = MGF2::identity(3);
+        let m1 = test_matrix2();
+        let m2 = test_matrix3();
+        let m3 = test_matrix4();
+        let m4 = test_matrix5();
+        let m5 = test_matrix6();
+
+        let targets = vec![
+            (&i, &i, &i),
+            (&m1, &i, &m1),
+            (&i, &m1, &m1),
+            (&m2, &i, &m2),
+            (&i, &m2, &m2),
+            (&m3, &i, &m3),
+            (&i, &m3, &m3),
+            (&m4, &i, &m4),
+            (&i, &m4, &m4),
+            (&m1, &m2, &m3),
+            (&m2, &m1, &m4),
+            (&m2, &m3, &m5),
+            (&m3, &m2, &m1),
+        ];
+
+        for (a, b, c) in targets {
+            assert_eq!(a * b, *c);
+        }
+    }
+
+    #[test]
+    fn inverse_matrix_test() {
+        let i = MGF2::identity(3);
+        let m1 = test_matrix2();
+        let m2 = test_matrix3();
+        let m3 = test_matrix4();
+        let m4 = test_matrix5();
+        let m5 = test_matrix6();
+
+        let targets = vec![
+            (&i, &i),
+            (&m1, &m1),
+            (&m2, &m2),
+            (&m3, &m4),
+            (&m4, &m3),
+            (&m5, &m5),
+        ];
+
+        for (a, b) in targets {
+            assert!(a.clone().inverse().is_some(), "{:?}", a);
+            assert_eq!(a.clone().inverse().unwrap(), *b, "\n orig = {:?}", a);
+        }
     }
 }
