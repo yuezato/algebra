@@ -12,7 +12,7 @@ pub trait FiniteField: Field {
  * The section of GF(2)
  */
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[allow(non_camel_case_types)]
 pub struct GF_2 {
     // true = 1, false = 0
@@ -35,13 +35,6 @@ impl GF_2 {
         GF_2::ONE
     }
 }
-
-impl PartialEq for GF_2 {
-    fn eq(&self, rhs: &Self) -> bool {
-        self.value == rhs.value
-    }
-}
-impl Eq for GF_2 {}
 
 impl Add for GF_2 {
     type Output = GF_2;
@@ -129,6 +122,12 @@ impl Field for GF_2_16_Val {
 
     fn mul_inv(&self) -> GF_2_16_Val {
         GF_2_16_IMPL.mul_inv(*self)
+    }
+}
+
+impl FiniteField for GF_2_16_Val {
+    fn enumerate() -> Vec<Self> {
+        (0u16..=0xffff).map(|v| v.into()).collect()
     }
 }
 

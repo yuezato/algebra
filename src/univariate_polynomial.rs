@@ -223,12 +223,28 @@ impl<F: Field> Div for &Poly<F> {
     }
 }
 
+impl<F: Field> Div for Poly<F> {
+    type Output = Poly<F>;
+
+    fn div(self, rhs: Poly<F>) -> Poly<F> {
+        &self / &rhs
+    }
+}
+
 impl<F: Field> Rem for &Poly<F> {
     type Output = Poly<F>;
 
     fn rem(self, rhs: &Poly<F>) -> Poly<F> {
         let (_, reminder) = self.long_div(rhs);
         reminder
+    }
+}
+
+impl<F: Field> Rem for Poly<F> {
+    type Output = Poly<F>;
+
+    fn rem(self, rhs: Poly<F>) -> Poly<F> {
+        &self % &rhs
     }
 }
 
