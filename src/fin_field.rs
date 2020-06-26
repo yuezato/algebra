@@ -120,8 +120,17 @@ lazy_static! {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct GF_2_16_Val(u16);
+
+impl Field for GF_2_16_Val {
+    const ZERO: GF_2_16_Val = GF_2_16_Val(0);
+    const ONE: GF_2_16_Val = GF_2_16_Val(1);
+
+    fn mul_inv(&self) -> GF_2_16_Val {
+        GF_2_16_IMPL.mul_inv(*self)
+    }
+}
 
 impl From<u16> for GF_2_16_Val {
     fn from(v: u16) -> Self {
@@ -157,6 +166,38 @@ impl Mul<GF_2_16_Val> for GF_2_16_Val {
     }
 }
 
+impl Add<GF_2_16_Val> for GF_2_16_Val {
+    type Output = GF_2_16_Val;
+
+    fn add(self, rhs: GF_2_16_Val) -> GF_2_16_Val {
+        GF_2_16_IMPL.add(self, rhs)
+    }
+}
+
+impl Neg for GF_2_16_Val {
+    type Output = GF_2_16_Val;
+
+    fn neg(self) -> GF_2_16_Val {
+        GF_2_16_IMPL.add_inv(self)
+    }
+}
+
+impl Sub<GF_2_16_Val> for GF_2_16_Val {
+    type Output = GF_2_16_Val;
+
+    fn sub(self, rhs: GF_2_16_Val) -> GF_2_16_Val {
+        self + (-rhs)
+    }
+}
+
+impl Div<GF_2_16_Val> for GF_2_16_Val {
+    type Output = GF_2_16_Val;
+
+    fn div(self, rhs: GF_2_16_Val) -> GF_2_16_Val {
+        self * GF_2_16_IMPL.mul_inv(rhs)
+    }
+}
+
 #[allow(non_camel_case_types)]
 #[allow(non_snake_case)]
 pub struct GF_2_16 {
@@ -186,6 +227,14 @@ impl GF_2_16 {
 
     // The order of GF(2^16).
     const ORDER: u16 = 0xffff;
+
+    pub fn zero() -> GF_2_16_Val {
+        0.into()
+    }
+
+    pub fn one() -> GF_2_16_Val {
+        1.into()
+    }
 
     pub fn new(ppoly: Poly<GF_2>) -> GF_2_16 {
         assert!(ppoly.degree() == Some(16));
@@ -262,14 +311,14 @@ impl GF_2_16 {
     /// For p, q: reduced poly
     /// p + q is obtained by the componentwize addition
     /// Especially, on GF(2), + = XOR
-    pub fn add(&self, p: u16, q: u16) -> u16 {
-        p ^ q
+    pub fn add(&self, p: GF_2_16_Val, q: GF_2_16_Val) -> GF_2_16_Val {
+        (u16::from(p) ^ u16::from(q)).into()
     }
 
     /// For p: redureced poly,
     /// -p is the unique value such that p + (-p) = 0
     /// on GF(2), since -v = v, -p=p.
-    pub fn add_inv(&self, p: u16) -> u16 {
+    pub fn add_inv(&self, p: GF_2_16_Val) -> GF_2_16_Val {
         p
     }
 }
