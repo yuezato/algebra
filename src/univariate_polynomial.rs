@@ -72,7 +72,7 @@ impl<F: Field> Poly<F> {
     }
 
     // 係数が零でない次数のうち最大のものを返す
-    fn degree(&self) -> Option<u32> {
+    pub fn degree(&self) -> Option<u32> {
         self.max_mono().map(|(deg, _)| deg)
     }
 
@@ -105,7 +105,7 @@ impl<F: Field> Poly<F> {
     /*
      * long_div(p, q) = (a, b) s.t. p = aq + b where b = 0 or deg(a) < deg(q)
      */
-    pub fn long_div(&self, divisor: Self) -> (Poly<F>, Poly<F>) {
+    pub fn long_div(&self, divisor: &Self) -> (Poly<F>, Poly<F>) {
         // divisorのdegreeに何か掛けて
         // selfのdegreeを打ち消そうとする
 
@@ -214,19 +214,19 @@ impl<F: Field> Mul for Poly<F> {
     }
 }
 
-impl<F: Field> Div for Poly<F> {
+impl<F: Field> Div for &Poly<F> {
     type Output = Poly<F>;
 
-    fn div(self, rhs: Self) -> Poly<F> {
+    fn div(self, rhs: &Poly<F>) -> Poly<F> {
         let (quotient, _) = self.long_div(rhs);
         quotient
     }
 }
 
-impl<F: Field> Rem for Poly<F> {
+impl<F: Field> Rem for &Poly<F> {
     type Output = Poly<F>;
 
-    fn rem(self, rhs: Self) -> Poly<F> {
+    fn rem(self, rhs: &Poly<F>) -> Poly<F> {
         let (_, reminder) = self.long_div(rhs);
         reminder
     }
