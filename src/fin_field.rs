@@ -189,6 +189,7 @@ impl Sub<GF_2_16_Val> for GF_2_16_Val {
     }
 }
 
+#[allow(clippy::suspicious_arithmetic_impl)]
 impl Div<GF_2_16_Val> for GF_2_16_Val {
     type Output = GF_2_16_Val;
 
@@ -218,14 +219,14 @@ impl GF_2_16 {
     `* the multiplicative roup of GF(2^16).
      * Since \alpha is a primitive root, \alpha^{\max_exp+1} = 1.
      */
-    const MAX_EXP: u16 = 0xffff - 2;
+    const MAX_EXP: u16 = 0xffff - 1;
 
     /// Since modulo = max_exp + 1,
     /// for any p % `modulo` = 0, \alpha^p = 1.
-    const MODULO: u16 = 0xffff - 1;
+    const MODULO: u16 = 0xffff;
 
     // The order of GF(2^16).
-    const ORDER: u16 = 0xffff;
+    const ORDER: u32 = 0x10000;
 
     pub fn zero() -> GF_2_16_Val {
         0.into()
@@ -251,12 +252,28 @@ impl GF_2_16 {
         // Therefore, phi[0] = 0.
         let mut phi: Vec<u16> = vec![0; GF_2_16::ORDER as usize];
 
+        // p = the polynomial 1 = \alpha^0
+        let mut p = None;
+
+        // 毎回 \alpha^i % P を計算するのが単純な方法だが
+        // 次数が大きい場合の除算をするよりも
+        // \alpha^{i+1} % P = ((\alpha^i % P) * \alpha) % P
+        // の等式を用いて、直前の結果 \alpha^i % P を用いるようにする
         for i in 0u16..=GF_2_16::MAX_EXP {
-            // p = \alpha^i
-            let p = Poly::<GF_2>::from_mono(i as u32, GF_2::ONE);
+            if let Some(p_) = p {
+                // i > 0
+                // p := p * \alpha
+                p = Some(p_ * Poly::<GF_2>::from_mono(1, GF_2::ONE));
+            } else {
+                // i == 0
+                // p = the polynomoal 1
+                p = Some(Poly::<GF_2>::from_mono(0, GF_2::ONE))
+            }
 
             // v is the binary representetion of the reduced poly of `p`
-            let reduced = &p % &ppoly;
+            let reduced = &(p.unwrap()) % &ppoly;
+            p = Some(reduced.clone());
+
             let rep: GF_2_16_Val = reduced.into();
             let bin_rep: u16 = rep.into();
 
@@ -288,10 +305,10 @@ impl GF_2_16 {
         let i = self.phi[p as usize]; // a^i % P = p
         let j = self.phi[q as usize]; // a^j % P = q
 
-        // alpha^p * alpha^j = alpha^{i + j} = \alpha^{(i + j) % modulo
+        // alpha^i * alpha^j = alpha^{i + j} = \alpha^{(i + j) % modulo}
         // Since \alpha^modulo = 1
-        let r = (i + j) % GF_2_16::MODULO;
-        self.psi[r as usize]
+        let i_j = (i + j) % GF_2_16::MODULO;
+        self.psi[i_j as usize]
     }
 
     pub fn mul_inv(&self, p: GF_2_16_Val) -> GF_2_16_Val {
@@ -329,11 +346,15 @@ mod tests {
     #[test]
     fn add_inv() {
         check_add_inv::<GF_2>();
+
+        check_add_inv::<GF_2_16_Val>();
     }
 
     #[test]
     fn mul_inv() {
         check_mul_inv::<GF_2>();
+
+        check_mul_inv::<GF_2_16_Val>();
     }
 
     fn check_add_inv<F: FiniteField>() {

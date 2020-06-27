@@ -28,6 +28,30 @@ impl<F: Field> PartialEq for Poly<F> {
 impl<F: Field> Eq for Poly<F> {}
 
 impl<F: Field> Poly<F> {
+    pub fn to_string_as_poly(&self) -> String {
+        let mut s = String::new();
+        let p = self.normalize();
+
+        if p.is_zero() {
+            return String::from("0");
+        }
+
+        let mut first = true;
+
+        for (deg, v) in p.inner.iter().rev() {
+            if *v != F::ZERO {
+                if first {
+                    s += &format!("x^{}", deg).to_string();
+                    first = false;
+                } else {
+                    s += &format!(" + x^{}", deg).to_string();
+                }
+            }
+        }
+
+        s
+    }
+
     pub fn iter(&self) -> impl std::iter::Iterator<Item = (&u32, &F)> {
         self.inner.iter()
     }
@@ -106,34 +130,32 @@ impl<F: Field> Poly<F> {
      * long_div(p, q) = (a, b) s.t. p = aq + b where b = 0 or deg(a) < deg(q)
      */
     pub fn long_div(&self, divisor: &Self) -> (Poly<F>, Poly<F>) {
-        // divisorのdegreeに何か掛けて
-        // selfのdegreeを打ち消そうとする
-
         let mut quotient = Poly::new();
-        let mut divided = self.clone();
+        let mut reminder = self.clone();
+
+        // loop invariant
+        //  divisor == quotient * divisor + reminder.
 
         loop {
-            if divided.is_zero() {
-                return (quotient, divided);
+            if reminder.is_zero() || reminder.degree() < divisor.degree() {
+                return (quotient, reminder);
             }
 
-            if divided.degree() < divisor.degree() {
-                return (quotient, divided);
-            }
-
-            // divided = c1 x^{d1} + ...
-            let (d1, c1) = divided.max_mono().unwrap();
+            // reminder = c1 x^{d1} + ...
+            let (d1, c1) = reminder.max_mono().unwrap();
 
             // divisor = c2 x^{d2} + ...
             let (d2, c2) = divisor.max_mono().unwrap();
 
             let d = d1 - d2;
             let c = c1 / c2;
-            let p = Poly::from_mono(d, c);
 
-            // (c2 x^{d2} + ....) * p = c x^{d} = c1 x^{d1} + ...'
-            quotient = quotient.clone() + p.clone();
-            divided = divided - divisor.clone() * p;
+            // (c1 / c2) x^{d1-d2}
+            // divisor * q = c1 x^{d1} + ...'
+            let q = Poly::from_mono(d, c);
+
+            reminder = reminder - divisor.clone() * q.clone();
+            quotient = quotient.clone() + q;
         }
     }
 }
