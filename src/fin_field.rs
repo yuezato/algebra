@@ -116,8 +116,16 @@ lazy_static! {
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct GF_2_16_Val(u16);
 
+impl GF_2_16_Val {
+    // 1 \alpha^1 + 0 \alpha^0
+    pub const PRIMITIVE_ROOT: GF_2_16_Val = GF_2_16_Val(0b10);
+}
+
 impl Field for GF_2_16_Val {
+    // 0
     const ZERO: GF_2_16_Val = GF_2_16_Val(0);
+
+    // \alpha^0
     const ONE: GF_2_16_Val = GF_2_16_Val(1);
 
     fn mul_inv(&self) -> GF_2_16_Val {
@@ -302,12 +310,12 @@ impl GF_2_16 {
             return 0.into();
         }
 
-        let i = self.phi[p as usize]; // a^i % P = p
-        let j = self.phi[q as usize]; // a^j % P = q
+        let i: u32 = self.phi[p as usize].into(); // a^i % P = p
+        let j: u32 = self.phi[q as usize].into(); // a^j % P = q
 
         // alpha^i * alpha^j = alpha^{i + j} = \alpha^{(i + j) % modulo}
         // Since \alpha^modulo = 1
-        let i_j = (i + j) % GF_2_16::MODULO;
+        let i_j = (i + j) % (GF_2_16::MODULO as u32);
         self.psi[i_j as usize]
     }
 

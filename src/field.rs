@@ -46,4 +46,19 @@ pub trait Field:
     const ONE: Self;
 
     fn mul_inv(&self) -> Self;
+
+    fn exp(&self, exponent: u32) -> Self {
+        if exponent == 0 {
+            return Self::ONE;
+        }
+
+        let v = self.exp(exponent / 2);
+        if exponent % 2 == 0 {
+            // x^{2n} = x^n * x^n
+            v * v
+        } else {
+            // x^{2n+1} = x^n * x^n * x
+            *self * v * v
+        }
+    }
 }

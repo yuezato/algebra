@@ -38,8 +38,8 @@ impl<F: Field> IndexMut<usize> for Matrix<F> {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct MatrixSize {
-    height: usize,
-    width: usize,
+    pub height: usize,
+    pub width: usize,
 }
 
 impl<F: Field> Matrix<F> {
@@ -48,6 +48,16 @@ impl<F: Field> Matrix<F> {
      */
     pub fn swap_column(&mut self, x: usize, y: usize) {
         self.inner.swap(x, y);
+    }
+
+    /// ix in ixs ==> 0 <= ix < self.height
+    pub fn drop_columns(&mut self, mut ixs: Vec<usize>) {
+        ixs.sort();
+
+        // 行列の下の方の行から削除していく
+        for ix in ixs.iter().rev() {
+            self.inner.remove(*ix);
+        }
     }
 
     /*
@@ -103,11 +113,11 @@ impl<F: Field> Matrix<F> {
         Some(m)
     }
 
-    pub fn width(&self) -> usize {
-        self.width
-    }
     pub fn height(&self) -> usize {
-        self.height
+        self.inner.len()
+    }
+    pub fn width(&self) -> usize {
+        self.inner[0].len()
     }
 
     /*

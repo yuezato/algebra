@@ -6,7 +6,6 @@ use std::ops::{Add, Index, IndexMut, Mul, Sub};
  */
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Vecteur<F: Field> {
-    elems: usize,
     inner: Vec<F>,
 }
 
@@ -24,12 +23,12 @@ impl<F: Field> IndexMut<usize> for Vecteur<F> {
     }
 }
 
+#[allow(clippy::len_without_is_empty)]
 impl<F: Field> Vecteur<F> {
-    /// Make the zero vector with the size `elems`.
-    pub fn new(elems: usize) -> Vecteur<F> {
+    /// Make the zero vector with the size `len`.
+    pub fn new(len: usize) -> Vecteur<F> {
         Self {
-            elems,
-            inner: vec![F::ZERO; elems],
+            inner: vec![F::ZERO; len],
         }
     }
 
@@ -49,8 +48,8 @@ impl<F: Field> Vecteur<F> {
         self.inner.get_unchecked_mut(idx)
     }
 
-    pub fn elems(&self) -> usize {
-        self.elems
+    pub fn len(&self) -> usize {
+        self.inner.len()
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &F> {
@@ -58,10 +57,7 @@ impl<F: Field> Vecteur<F> {
     }
 
     pub fn from_vec(v: Vec<F>) -> Vecteur<F> {
-        Vecteur {
-            elems: v.len(),
-            inner: v,
-        }
+        Vecteur { inner: v }
     }
 }
 
@@ -72,15 +68,15 @@ impl<F: Field> Add for &Vecteur<F> {
     type Output = Vecteur<F>;
 
     fn add(self, rhs: &Vecteur<F>) -> Vecteur<F> {
-        assert!(self.elems == rhs.elems);
+        assert!(self.len() == rhs.len());
 
-        let elems = self.elems();
+        let elems = self.len();
         let mut v = vec![F::ZERO; elems];
         for (i, item) in v.iter_mut().enumerate() {
             *item = self[i] + rhs[i];
         }
 
-        Vecteur { elems, inner: v }
+        Vecteur { inner: v }
     }
 }
 impl<F: Field> Add for Vecteur<F> {
@@ -117,10 +113,7 @@ impl<F: Field> Mul<F> for &Vecteur<F> {
 
     fn mul(self, rhs: F) -> Vecteur<F> {
         let v: Vec<F> = self.iter().map(|e| rhs * *e).collect();
-        Vecteur {
-            elems: self.elems(),
-            inner: v,
-        }
+        Vecteur { inner: v }
     }
 }
 impl<F: Field> Mul<F> for Vecteur<F> {
@@ -139,9 +132,9 @@ impl<F: Field> Mul for &Vecteur<F> {
     type Output = F;
 
     fn mul(self, rhs: &Vecteur<F>) -> F {
-        assert!(self.elems() == rhs.elems());
+        assert!(self.len() == rhs.len());
         let mut v = F::ZERO;
-        for i in 0..self.elems() {
+        for i in 0..self.len() {
             v = v + (self[i] * rhs[i]);
         }
         v
