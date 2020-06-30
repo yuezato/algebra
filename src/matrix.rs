@@ -15,9 +15,6 @@ M.at(i, j) equals a_ij
  */
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Matrix<F: Field> {
-    width: usize,
-    height: usize,
-
     // 行ベクトルを縦に並べているイメージ
     inner: Vec<Vecteur<F>>,
 }
@@ -126,11 +123,7 @@ impl<F: Field> Matrix<F> {
     pub fn new(size: MatrixSize) -> Matrix<F> {
         let v = vec![Vecteur::new(size.width); size.height];
 
-        Matrix {
-            width: size.width,
-            height: size.height,
-            inner: v,
-        }
+        Matrix { inner: v }
     }
 
     /*

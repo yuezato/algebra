@@ -43,6 +43,19 @@ pub fn vandermonde<F: Field>(size: MatrixSize, v: Vec<F>) -> Option<Matrix<F>> {
     Some(m)
 }
 
+pub fn systematic_vandermonde<F: Field>(size: MatrixSize, v: Vec<F>) -> Option<Matrix<F>> {
+    let m = vandermonde(size, v);
+
+    if let Some(m) = m {
+        let mut sub = m.clone();
+        sub.drop_columns((size.width..size.height).collect());
+        let inv = sub.inverse().unwrap();
+        Some(&m * &inv)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -91,5 +104,24 @@ mod tests {
             let v_inv = v.clone().inverse().unwrap();
             assert_eq!(&v * &v_inv, Matrix::identity(4));
         }
+    }
+
+    #[test]
+    fn systematic_vandermonde_test() {
+        let r = GF_2_16_Val::PRIMITIVE_ROOT;
+
+        let mut sv = systematic_vandermonde(
+            MatrixSize {
+                height: 5,
+                width: 4,
+            },
+            vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)],
+        )
+        .unwrap();
+
+        // 上の方が単位行列になっていることの確認
+        sv.drop_columns(vec![4]);
+
+        assert_eq!(sv, Matrix::identity(4));
     }
 }

@@ -59,6 +59,10 @@ impl<F: Field> Vecteur<F> {
     pub fn from_vec(v: Vec<F>) -> Vecteur<F> {
         Vecteur { inner: v }
     }
+
+    pub fn as_vec(&self) -> &Vec<F> {
+        &self.inner
+    }
 }
 
 /*

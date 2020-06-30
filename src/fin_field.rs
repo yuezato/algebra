@@ -1,11 +1,20 @@
 use crate::field::*;
 use crate::univariate_polynomial::*;
+use std::convert::TryInto;
 use std::convert::{From, Into};
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 pub trait FiniteField: Field {
+    // 全要素を列挙する
     fn enumerate() -> Vec<Self>;
+
+    // 体の要素として埋め込めるバイト数
+    const BYTE_SIZE: usize;
+
+    fn from_bytes(v: &[u8]) -> Self;
+
+    fn to_byte(&self, idx: usize) -> u8;
 }
 
 /*
@@ -97,6 +106,30 @@ impl FiniteField for GF_2 {
     fn enumerate() -> Vec<Self> {
         vec![GF_2::ZERO, GF_2::ONE]
     }
+
+    const BYTE_SIZE: usize = 0;
+
+    fn from_bytes(v: &[u8]) -> GF_2 {
+        debug_assert!(v.len() == 1);
+
+        if v[0] == 1 {
+            GF_2::ONE
+        } else if v[0] == 0 {
+            GF_2::ZERO
+        } else {
+            panic!("invalid value");
+        }
+    }
+
+    fn to_byte(&self, idx: usize) -> u8 {
+        debug_assert!(idx == 0);
+
+        if !self.value {
+            0
+        } else {
+            1
+        }
+    }
 }
 
 /*
@@ -136,6 +169,22 @@ impl Field for GF_2_16_Val {
 impl FiniteField for GF_2_16_Val {
     fn enumerate() -> Vec<Self> {
         (0u16..=0xffff).map(|v| v.into()).collect()
+    }
+
+    const BYTE_SIZE: usize = 2;
+
+    fn from_bytes(v: &[u8]) -> Self {
+        assert!(v.len() == 2);
+
+        let r: u16 = (u16::from(v[1]) << 8) | u16::from(v[0]);
+        GF_2_16_Val(r)
+    }
+
+    fn to_byte(&self, idx: usize) -> u8 {
+        assert!(idx == 0 || idx == 1);
+
+        let v: u8 = ((self.0 >> (8 * idx)) & 0xff).try_into().unwrap();
+        v
     }
 }
 
