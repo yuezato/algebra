@@ -78,6 +78,62 @@ fn check_copyable<F: FiniteField>(v: &[F]) -> Option<usize> {
     res
 }
 
+pub fn memory_optimized_mul4<F: FiniteField>(m: &Matrix<F>, datam: &[Vec<u8>]) -> Vec<u8> {
+    let mut v: Vec<&[u8]> = Vec::new();
+    for i in datam {
+        v.push(&i);
+    }
+    memory_optimized_mul3(m, &v)
+}
+
+pub fn memory_optimized_mul3<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> Vec<u8> {
+    let width = datam[0].len();
+
+    assert!(m.height() >= m.width());
+    assert!(width % F::BYTE_SIZE == 0);
+
+    let mut coded: Vec<u8> = vec![0; m.height() * width];
+
+    for i in 0..m.height() {
+        // m[i] == 0 0 ... 1 0 .. 0 かつ m[i][l] == l
+        // なら i に l をコピーとした方が良い
+        if let Some(c) = check_copyable(m[i].as_vec()) {
+            // サイズ width をコピーしてきたい
+            coded[i * width..(i + 1) * width].copy_from_slice(datam[c]);
+        } else {
+            // 行ベクトル m[i] と データ行列 d の乗算
+            // j: データ行列dを縦に走る変数
+            // data: データ行ベクトル
+            for (j, data) in datam.iter().enumerate() {
+                // k: データ行列行ベクトルdataを横に走る変数
+                let mut k = 0;
+                loop {
+                    if k >= width {
+                        break;
+                    }
+                    let x: F = m[i][j] * F::from_bytes(&data[k..(k + F::BYTE_SIZE)]);
+                    let z: F;
+
+                    if j == 0 {
+                        // coded[0]は未初期化状態なので場合分けが必要になる
+                        z = x;
+                    } else {
+                        z = F::from_bytes(&coded[(i * width + k)..(i * width + k + F::BYTE_SIZE)])
+                            + x;
+                    }
+
+                    for l in 0..F::BYTE_SIZE {
+                        coded[i * width + k + l] = z.to_byte(l);
+                    }
+                    k += F::BYTE_SIZE;
+                }
+            }
+        }
+    }
+
+    coded
+}
+
 pub fn memory_optimized_mul2<F: FiniteField>(m: &Matrix<F>, datam: &[Vec<u8>]) -> Vec<Vec<u8>> {
     let mut v: Vec<&[u8]> = Vec::new();
     for i in datam {
@@ -304,6 +360,7 @@ mod tests {
         let r1 = matrix_mul2(&v1, &datam);
         let r2 = matrix_mul(&v1, &datam);
         let r3 = memory_optimized_mul(&v1, &datav_);
+        let r4 = memory_optimized_mul3(&v1, &datav_);
 
         for i in 0..r1.height() {
             let data = &r2[i];
@@ -318,6 +375,8 @@ mod tests {
             assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(&r3[i]));
             assert_eq!(finfield_vec_to_data(r1[i].as_vec()), r3[i]);
         }
+
+        assert_eq!(r3.concat(), r4);
     }
 
     #[test]
@@ -354,6 +413,7 @@ mod tests {
         let r1 = matrix_mul2(&v1, &datam);
         let r2 = matrix_mul(&v1, &datam);
         let r3 = memory_optimized_mul(&v1, &datav_);
+        let r4 = memory_optimized_mul3(&v1, &datav_);
 
         for i in 0..r1.height() {
             let data = &r2[i];
@@ -368,6 +428,8 @@ mod tests {
             assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(&r3[i]));
             assert_eq!(finfield_vec_to_data(r1[i].as_vec()), r3[i]);
         }
+
+        assert_eq!(r3.concat(), r4);
     }
 
     #[test]
@@ -420,12 +482,18 @@ mod tests {
         erased_mds.drop_columns(vec![0]);
         let decoder_matrix = erased_mds.inverse().unwrap();
 
+        // Vec<Vec<u8>> -> Vec<u8> は コスト高いので
+        // 直接計算する関数を準備しておく
         let decoded_datav: Vec<Vec<u8>> = memory_optimized_mul2(&decoder_matrix, &encoded_datav);
+
+        let decoded2: Vec<u8> = memory_optimized_mul4(&decoder_matrix, &encoded_datav);
 
         for i in 0..datav.len() {
             let a: &[u8] = datav[i];
             let b: &Vec<u8> = &decoded_datav[i];
             assert_eq!(a, &b[..]);
         }
+
+        assert_eq!(decoded_datav.concat(), decoded2);
     }
 }
