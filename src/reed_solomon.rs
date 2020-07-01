@@ -78,13 +78,21 @@ fn check_copyable<F: FiniteField>(v: &[F]) -> Option<usize> {
     res
 }
 
+pub fn memory_optimized_mul2<F: FiniteField>(m: &Matrix<F>, datam: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    let mut v: Vec<&[u8]> = Vec::new();
+    for i in datam {
+        v.push(&i);
+    }
+    memory_optimized_mul(m, &v)
+}
+
 /*
  * 行列積を行う関数
  *
  * 1. 行列積を格納するためのメモリ領域以外を確保しない
  * 2. 行列演算ではなくメモリコピーで済ませられる場合にはそのようにする
  */
-pub fn memory_optimized_mul<F: FiniteField>(m: &Matrix<F>, datam: Vec<&[u8]>) -> Vec<Vec<u8>> {
+pub fn memory_optimized_mul<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> Vec<Vec<u8>> {
     /*
      * m[i] = (0 0 .. 1 .. 0) かつ m[i][i] = 1の時には
      * d[i] の結果をそのまま使えば良い
@@ -295,7 +303,7 @@ mod tests {
 
         let r1 = matrix_mul2(&v1, &datam);
         let r2 = matrix_mul(&v1, &datam);
-        let r3 = memory_optimized_mul(&v1, datav_);
+        let r3 = memory_optimized_mul(&v1, &datav_);
 
         for i in 0..r1.height() {
             let data = &r2[i];
@@ -345,7 +353,7 @@ mod tests {
 
         let r1 = matrix_mul2(&v1, &datam);
         let r2 = matrix_mul(&v1, &datam);
-        let r3 = memory_optimized_mul(&v1, datav_);
+        let r3 = memory_optimized_mul(&v1, &datav_);
 
         for i in 0..r1.height() {
             let data = &r2[i];
@@ -385,5 +393,39 @@ mod tests {
 
         let v6 = vec![r, o, l];
         assert_eq!(check_copyable(&v6), None);
+    }
+
+    #[test]
+    fn enc_erase_dec_test1() {
+        let r = GF_2_16_Val::PRIMITIVE_ROOT;
+
+        let mds = systematic_vandermonde(
+            MatrixSize {
+                height: 5,
+                width: 4,
+            },
+            vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)],
+        )
+        .unwrap();
+
+        let datav: Vec<u8> = (0..160).collect();
+        let datav: Vec<&[u8]> = vec_to_quasi_matrix(&datav, mds.width());
+
+        let mut encoded_datav: Vec<Vec<u8>> = memory_optimized_mul(&mds, &datav);
+
+        encoded_datav.remove(0);
+
+        // データ消失した位置に対応する行ベクトルを削除する
+        let mut erased_mds = mds.clone();
+        erased_mds.drop_columns(vec![0]);
+        let decoder_matrix = erased_mds.inverse().unwrap();
+
+        let decoded_datav: Vec<Vec<u8>> = memory_optimized_mul2(&decoder_matrix, &encoded_datav);
+
+        for i in 0..datav.len() {
+            let a: &[u8] = datav[i];
+            let b: &Vec<u8> = &decoded_datav[i];
+            assert_eq!(a, &b[..]);
+        }
     }
 }
