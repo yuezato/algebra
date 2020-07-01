@@ -33,7 +33,7 @@ pub trait FiniteField: Field {
     }
 }
 
-pub trait HasPrimitiveElement {
+pub trait HasPrimitiveElement: Copy {
     const PRIMITIVE_ELEMENT: Self;
 }
 

@@ -276,6 +276,9 @@ impl Encoded {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Generator<F: FiniteField>(Matrix<F>);
+
 // TODO: 行列のサイズは大したことがないので
 // ここで返してしまっても良い気がする。
 #[allow(non_snake_case)]
@@ -283,7 +286,7 @@ pub fn encode_by_RSV<F: FiniteField + HasPrimitiveElement>(
     data_size: usize,
     parity_size: usize,
     data: &[u8],
-) -> Vec<Encoded> {
+) -> (Generator<F>, Vec<Encoded>) {
     // FIX:
     // 本当は data_size + parity_size <= F::CARDINALITY - 2
     // (-2は0と1を取り除くため)を確認する必要あり。
@@ -310,41 +313,24 @@ pub fn encode_by_RSV<F: FiniteField + HasPrimitiveElement>(
         result.push(Encoded(i, data));
     }
 
-    result
+    (Generator(mds), result)
 }
 
 #[allow(non_snake_case)]
-pub fn decode_by_RSV<F: FiniteField + HasPrimitiveElement>(
-    data_size: usize,
-    parity_size: usize,
-    data: Vec<Encoded>,
-) -> Vec<u8> {
-    // FIX
-    // data_size + parity_size <= F::CARDINALITY - 2
-
-    let velems: Vec<F> = (1..=(data_size + parity_size))
-        .map(|i| F::PRIMITIVE_ELEMENT.exp(i as u32))
-        .collect();
-
-    let mut mds = systematic_vandermonde(
-        MatrixSize {
-            height: data_size + parity_size,
-            width: data_size,
-        },
-        &velems,
-    )
-    .unwrap();
+pub fn decode_by_RSV<F: FiniteField>(generator: Generator<F>, data: Vec<Encoded>) -> Vec<u8> {
+    let mut generator: Matrix<F> = generator.0;
+    let total_block = generator.height();
 
     let mut erased_columns: Vec<usize> = Vec::new();
     let alive_columns: Vec<usize> = data.iter().map(|e| e.0).collect();
-    for i in 0..mds.height() {
+    for i in 0..total_block {
         if !alive_columns.contains(&i) {
             erased_columns.push(i);
         }
     }
 
-    mds.drop_columns(erased_columns);
-    let decoder_matrix = mds.inverse().unwrap();
+    generator.drop_columns(erased_columns);
+    let decoder_matrix = generator.inverse().unwrap();
     let encoded_data: Vec<Vec<u8>> = data.into_iter().map(|e| e.1).collect();
 
     memory_optimized_mul4(&decoder_matrix, &encoded_data)
@@ -530,10 +516,10 @@ mod tests {
             let parity_size = 1;
 
             let datav: Vec<u8> = (0..160).collect();
-            let mut encoded: Vec<Encoded> = encode_by_RSV::<F>(data_size, parity_size, &datav);
+            let (generator, mut encoded) = encode_by_RSV::<F>(data_size, parity_size, &datav);
 
             encoded.remove(0);
-            let decoded: Vec<u8> = decode_by_RSV::<F>(data_size, parity_size, encoded);
+            let decoded: Vec<u8> = decode_by_RSV::<F>(generator, encoded);
 
             assert_eq!(decoded, datav);
         }
