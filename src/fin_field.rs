@@ -149,6 +149,214 @@ impl FiniteField for GF_2 {
 }
 
 /*
+ * The section of GF(2^8)
+ */
+
+lazy_static! {
+    // use x^8 + x^4 + x^3 + x^2 + 1.
+    static ref GF_2_8_IMPL: GF_2_8_impl = GF_2_8_impl::new(
+        Poly::from_vec( vec![
+            (8, GF_2::ONE), (4, GF_2::ONE), (3, GF_2::ONE), (2, GF_2::ONE), (0, GF_2::ONE)
+        ])
+    );
+}
+
+#[allow(non_camel_case_types)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct GF_2_8(u8);
+
+impl GF_2_8 {
+    // 1 \alpha^1 + 0 \alpha^0
+    pub const PRIMITIVE_ROOT: GF_2_8 = GF_2_8(0b10);
+}
+
+impl Field for GF_2_8 {
+    // 0
+    const ZERO: GF_2_8 = GF_2_8(0);
+
+    // \alpha^0
+    const ONE: GF_2_8 = GF_2_8(1);
+
+    fn mul_inv(&self) -> GF_2_8 {
+        GF_2_8_IMPL.mul_inv(*self)
+    }
+}
+
+impl FiniteField for GF_2_8 {
+    fn enumerate() -> Vec<Self> {
+        (0u8..=0xff).map(|v| v.into()).collect()
+    }
+
+    const BYTE_SIZE: usize = 1;
+
+    fn from_bytes(v: &[u8]) -> Self {
+        debug_assert!(v.len() == 1);
+
+        GF_2_8(v[0])
+    }
+
+    fn to_byte(&self, idx: usize) -> u8 {
+        debug_assert!(idx == 0);
+
+        self.0
+    }
+}
+
+impl From<u8> for GF_2_8 {
+    fn from(v: u8) -> Self {
+        GF_2_8(v)
+    }
+}
+
+impl From<GF_2_8> for u8 {
+    fn from(v: GF_2_8) -> Self {
+        v.0
+    }
+}
+
+impl From<Poly<GF_2>> for GF_2_8 {
+    fn from(p: Poly<GF_2>) -> Self {
+        let mut v: u8 = 0;
+
+        for (deg, coef) in p.iter() {
+            if *coef == GF_2::ONE {
+                v |= 1 << (*deg)
+            }
+        }
+
+        v.into()
+    }
+}
+
+impl Mul<GF_2_8> for GF_2_8 {
+    type Output = GF_2_8;
+
+    fn mul(self, rhs: GF_2_8) -> GF_2_8 {
+        GF_2_8_IMPL.mul(self, rhs)
+    }
+}
+
+impl Add<GF_2_8> for GF_2_8 {
+    type Output = GF_2_8;
+
+    fn add(self, rhs: GF_2_8) -> GF_2_8 {
+        GF_2_8_IMPL.add(self, rhs)
+    }
+}
+
+impl Neg for GF_2_8 {
+    type Output = GF_2_8;
+
+    fn neg(self) -> GF_2_8 {
+        GF_2_8_IMPL.add_inv(self)
+    }
+}
+
+impl Sub<GF_2_8> for GF_2_8 {
+    type Output = GF_2_8;
+
+    fn sub(self, rhs: GF_2_8) -> GF_2_8 {
+        self + (-rhs)
+    }
+}
+
+#[allow(clippy::suspicious_arithmetic_impl)]
+impl Div<GF_2_8> for GF_2_8 {
+    type Output = GF_2_8;
+
+    fn div(self, rhs: GF_2_8) -> GF_2_8 {
+        self * GF_2_8_IMPL.mul_inv(rhs)
+    }
+}
+
+#[allow(non_camel_case_types)]
+#[allow(non_snake_case)]
+pub struct GF_2_8_impl {
+    // primitive polynomial
+    ppoly: Poly<GF_2>,
+    psi: Vec<GF_2_8>,
+    phi: Vec<u8>,
+}
+
+impl GF_2_8_impl {
+    const MAX_EXP: u8 = 0xff - 1;
+    const MODULO: u8 = 0xff;
+    const ORDER: u16 = 0x100;
+
+    pub fn zero() -> GF_2_8 {
+        0.into()
+    }
+
+    pub fn one() -> GF_2_8 {
+        1.into()
+    }
+
+    pub fn new(ppoly: Poly<GF_2>) -> GF_2_8_impl {
+        assert!(ppoly.degree() == Some(8));
+
+        let mut psi: Vec<GF_2_8> = vec![0.into(); (GF_2_8_impl::MAX_EXP + 1) as usize];
+        let mut phi: Vec<u8> = vec![0; GF_2_8_impl::ORDER as usize];
+        let mut p = None;
+
+        for i in 0u8..=GF_2_8_impl::MAX_EXP {
+            if let Some(p_) = p {
+                p = Some(p_ * Poly::<GF_2>::from_mono(1, GF_2::ONE));
+            } else {
+                p = Some(Poly::<GF_2>::from_mono(0, GF_2::ONE))
+            }
+
+            let reduced = &(p.unwrap()) % &ppoly;
+            p = Some(reduced.clone());
+
+            let rep: GF_2_8 = reduced.into();
+            let bin_rep: u8 = rep.into();
+
+            psi[i as usize] = rep;
+            phi[bin_rep as usize] = i;
+        }
+
+        GF_2_8_impl { ppoly, psi, phi }
+    }
+
+    pub fn ppoly(self) -> Poly<GF_2> {
+        self.ppoly
+    }
+
+    pub fn mul(&self, p: GF_2_8, q: GF_2_8) -> GF_2_8 {
+        let p = u8::from(p);
+        let q = u8::from(q);
+
+        if p == 0 || q == 0 {
+            return 0.into();
+        }
+
+        let i: u16 = self.phi[p as usize].into();
+        let j: u16 = self.phi[q as usize].into();
+
+        let i_j = (i + j) % (GF_2_8_impl::MODULO as u16);
+        self.psi[i_j as usize]
+    }
+
+    pub fn mul_inv(&self, p: GF_2_8) -> GF_2_8 {
+        let p = u8::from(p);
+
+        debug_assert!(p != 0);
+
+        let i = self.phi[p as usize];
+        let inv = (GF_2_8_impl::MODULO - i) % GF_2_8_impl::MODULO;
+        self.psi[inv as usize]
+    }
+
+    pub fn add(&self, p: GF_2_8, q: GF_2_8) -> GF_2_8 {
+        (u8::from(p) ^ u8::from(q)).into()
+    }
+
+    pub fn add_inv(&self, p: GF_2_8) -> GF_2_8 {
+        p
+    }
+}
+
+/*
  * The section of GF(2^16)
  */
 
@@ -417,17 +625,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn add_inv() {
+    fn test_add_inv() {
         check_add_inv::<GF_2>();
-
+        check_add_inv::<GF_2_8>();
         check_add_inv::<GF_2_16_Val>();
     }
 
     #[test]
-    fn mul_inv() {
+    fn test_mul_inv() {
         check_mul_inv::<GF_2>();
-
+        check_mul_inv::<GF_2_8>();
         check_mul_inv::<GF_2_16_Val>();
+    }
+
+    #[test]
+    fn test_distributive_law() {
+        check_distributive_law::<GF_2>();
+        check_distributive_law::<GF_2_8>();
     }
 
     fn check_add_inv<F: FiniteField>() {
@@ -441,6 +655,16 @@ mod tests {
             if e != F::ZERO {
                 let inv = (&e).mul_inv();
                 assert_eq!(e * inv, F::ONE);
+            }
+        }
+    }
+
+    fn check_distributive_law<F: FiniteField>() {
+        for e1 in F::enumerate() {
+            for e2 in F::enumerate() {
+                for e3 in F::enumerate() {
+                    assert_eq!(e1 * (e2 + e3), e1 * e2 + e1 * e3);
+                }
             }
         }
     }

@@ -342,172 +342,190 @@ pub fn decode_by_RSV<F: FiniteField>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::field::*;
     use crate::vecteur::*;
 
     #[test]
     fn conversion_is_iso1() {
-        let r = GF_2_16_Val::PRIMITIVE_ROOT;
+        fn testfunc<F: FiniteField>(r: F) {
+            let v = vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4)];
+            let v_ = data_to_finfield_vec(&finfield_vec_to_data(&v));
+            assert_eq!(v, v_);
+        }
 
-        let v = vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4)];
-
-        let v_ = data_to_finfield_vec(&finfield_vec_to_data(&v));
-
-        assert_eq!(v, v_);
+        testfunc::<GF_2_8>(GF_2_8::PRIMITIVE_ROOT);
+        testfunc::<GF_2_16_Val>(GF_2_16_Val::PRIMITIVE_ROOT);
     }
 
     #[test]
     fn conversion_is_iso2() {
-        let v: Vec<u8> = (0u8..=0xffu8).collect();
-        let v_: Vec<GF_2_16_Val> = data_to_finfield_vec(&v);
-        let v_ = finfield_vec_to_data(&v_);
+        fn testfunc<F: FiniteField>() {
+            let v: Vec<u8> = (0u8..=0xffu8).collect();
+            let v_: Vec<F> = data_to_finfield_vec(&v);
+            let v_ = finfield_vec_to_data(&v_);
 
-        assert_eq!(v, v_);
+            assert_eq!(v, v_);
+        }
+
+        testfunc::<GF_2_8>();
+        testfunc::<GF_2_16_Val>();
     }
 
     #[test]
     fn optimized_mul_equals_to_mul1() {
-        let r = GF_2_16_Val::PRIMITIVE_ROOT;
+        testfunc(GF_2_8::PRIMITIVE_ROOT);
+        testfunc(GF_2_16_Val::PRIMITIVE_ROOT);
 
-        let v1 = vandermonde(
-            MatrixSize {
-                height: 4,
-                width: 4,
-            },
-            &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4)],
-        )
-        .unwrap();
+        fn testfunc<F: FiniteField>(r: F) {
+            let v1 = vandermonde(
+                MatrixSize {
+                    height: 4,
+                    width: 4,
+                },
+                &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4)],
+            )
+            .unwrap();
 
-        let datav: Vec<u8> = (0..80).collect();
-        let datav_: Vec<&[u8]> = vec_to_quasi_matrix(&datav, 4);
+            let datav: Vec<u8> = (0..80).collect();
+            let datav_: Vec<&[u8]> = vec_to_quasi_matrix(&datav, v1.width());
 
-        let mut datam: Matrix<GF_2_16_Val> = Matrix::new(MatrixSize {
-            height: datav_.len(),
-            width: datav_[0].len() / 2,
-        });
-        for i in 0..datam.height() {
-            let v = data_to_finfield_vec(&datav_[i]);
-            datam[i] = Vecteur::from_vec(v);
+            let mut datam: Matrix<F> = Matrix::new(MatrixSize {
+                height: datav_.len(),
+                width: datav_[0].len() / F::BYTE_SIZE,
+            });
+            for i in 0..datam.height() {
+                let v = data_to_finfield_vec(&datav_[i]);
+                datam[i] = Vecteur::from_vec(v);
+            }
+
+            for i in 0..datam.height() {
+                assert_eq!(datam[i].as_vec(), &data_to_finfield_vec(datav_[i]));
+            }
+
+            let r1 = matrix_mul2(&v1, &datam);
+            let r2 = matrix_mul(&v1, &datam);
+            let r3 = memory_optimized_mul(&v1, &datav_);
+            let r4 = memory_optimized_mul3(&v1, &datav_);
+
+            for i in 0..r1.height() {
+                let data = &r2[i];
+                assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(data));
+            }
+
+            for i in 0..r2.len() {
+                assert_eq!(r2[i], r3[i]);
+            }
+
+            for i in 0..r1.height() {
+                assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(&r3[i]));
+                assert_eq!(finfield_vec_to_data(r1[i].as_vec()), r3[i]);
+            }
+
+            assert_eq!(r3.concat(), r4);
         }
-
-        for i in 0..datam.height() {
-            assert_eq!(datam[i].as_vec(), &data_to_finfield_vec(datav_[i]));
-        }
-
-        let r1 = matrix_mul2(&v1, &datam);
-        let r2 = matrix_mul(&v1, &datam);
-        let r3 = memory_optimized_mul(&v1, &datav_);
-        // let r4 = memory_optimized_mul3(&v1, &datav_);
-
-        for i in 0..r1.height() {
-            let data = &r2[i];
-            assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(data));
-        }
-
-        for i in 0..r2.len() {
-            assert_eq!(r2[i], r3[i]);
-        }
-
-        for i in 0..r1.height() {
-            assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(&r3[i]));
-            assert_eq!(finfield_vec_to_data(r1[i].as_vec()), r3[i]);
-        }
-
-        // assert_eq!(r3.concat(), r4);
     }
 
     #[test]
     fn optimized_mul_equals_to_mul2() {
-        let r = GF_2_16_Val::PRIMITIVE_ROOT;
+        testfunc(GF_2_8::PRIMITIVE_ROOT);
+        testfunc(GF_2_16_Val::PRIMITIVE_ROOT);
 
-        let v1 = systematic_vandermonde(
-            MatrixSize {
-                height: 6,
-                width: 4,
-            },
-            &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5), r.exp(6)],
-        )
-        .unwrap();
+        fn testfunc<F: FiniteField>(r: F) {
+            let v1 = systematic_vandermonde(
+                MatrixSize {
+                    height: 6,
+                    width: 4,
+                },
+                &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5), r.exp(6)],
+            )
+            .unwrap();
 
-        let datav: Vec<u8> = (0..120).collect();
+            let datav: Vec<u8> = (0..120).collect();
 
-        // vec_to_quasi_matrix には data block数を渡す
-        let datav_: Vec<&[u8]> = vec_to_quasi_matrix(&datav, v1.width());
+            // vec_to_quasi_matrix には data block数を渡す
+            let datav_: Vec<&[u8]> = vec_to_quasi_matrix(&datav, v1.width());
 
-        let mut datam: Matrix<GF_2_16_Val> = Matrix::new(MatrixSize {
-            height: datav_.len(),
-            width: datav_[0].len() / GF_2_16_Val::BYTE_SIZE,
-        });
-        for i in 0..datam.height() {
-            let v = data_to_finfield_vec(&datav_[i]);
-            datam[i] = Vecteur::from_vec(v);
+            let mut datam: Matrix<F> = Matrix::new(MatrixSize {
+                height: datav_.len(),
+                width: datav_[0].len() / F::BYTE_SIZE,
+            });
+            for i in 0..datam.height() {
+                let v = data_to_finfield_vec(&datav_[i]);
+                datam[i] = Vecteur::from_vec(v);
+            }
+
+            for i in 0..datam.height() {
+                assert_eq!(datam[i].as_vec(), &data_to_finfield_vec(datav_[i]));
+            }
+
+            let r1 = matrix_mul2(&v1, &datam);
+            let r2 = matrix_mul(&v1, &datam);
+            let r3 = memory_optimized_mul(&v1, &datav_);
+            let r4 = memory_optimized_mul3(&v1, &datav_);
+
+            for i in 0..r1.height() {
+                let data = &r2[i];
+                assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(data));
+            }
+
+            for i in 0..r2.len() {
+                assert_eq!(r2[i], r3[i]);
+            }
+
+            for i in 0..r1.height() {
+                assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(&r3[i]));
+                assert_eq!(finfield_vec_to_data(r1[i].as_vec()), r3[i]);
+            }
+
+            assert_eq!(r3.concat(), r4);
         }
-
-        for i in 0..datam.height() {
-            assert_eq!(datam[i].as_vec(), &data_to_finfield_vec(datav_[i]));
-        }
-
-        let r1 = matrix_mul2(&v1, &datam);
-        let r2 = matrix_mul(&v1, &datam);
-        let r3 = memory_optimized_mul(&v1, &datav_);
-        let r4 = memory_optimized_mul3(&v1, &datav_);
-
-        for i in 0..r1.height() {
-            let data = &r2[i];
-            assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(data));
-        }
-
-        for i in 0..r2.len() {
-            assert_eq!(r2[i], r3[i]);
-        }
-
-        for i in 0..r1.height() {
-            assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(&r3[i]));
-            assert_eq!(finfield_vec_to_data(r1[i].as_vec()), r3[i]);
-        }
-
-        assert_eq!(r3.concat(), r4);
     }
 
     #[test]
     fn test_check_copyable() {
-        let r = GF_2_16_Val::PRIMITIVE_ROOT;
-        let o = GF_2_16_Val::ZERO;
-        let l = GF_2_16_Val::ONE;
+        testfunc(GF_2_8::PRIMITIVE_ROOT);
+        testfunc(GF_2_16_Val::PRIMITIVE_ROOT);
 
-        let v1 = vec![o, o];
-        assert_eq!(check_copyable(&v1), None);
+        fn testfunc<F: FiniteField>(r: F) {
+            let o = F::ZERO;
+            let l = F::ONE;
 
-        let v2 = vec![o, l];
-        assert_eq!(check_copyable(&v2), Some(1));
+            let v1 = vec![o, o];
+            assert_eq!(check_copyable(&v1), None);
 
-        let v3 = vec![l, o];
-        assert_eq!(check_copyable(&v3), Some(0));
+            let v2 = vec![o, l];
+            assert_eq!(check_copyable(&v2), Some(1));
 
-        let v4 = vec![l, o, r];
-        assert_eq!(check_copyable(&v4), None);
+            let v3 = vec![l, o];
+            assert_eq!(check_copyable(&v3), Some(0));
 
-        let v5 = vec![o, o, r];
-        assert_eq!(check_copyable(&v5), None);
+            let v4 = vec![l, o, r];
+            assert_eq!(check_copyable(&v4), None);
 
-        let v6 = vec![r, o, l];
-        assert_eq!(check_copyable(&v6), None);
+            let v5 = vec![o, o, r];
+            assert_eq!(check_copyable(&v5), None);
+
+            let v6 = vec![r, o, l];
+            assert_eq!(check_copyable(&v6), None);
+        }
     }
 
     #[test]
     fn enc_erase_dec_test1() {
-        let data_size = 4;
-        let parity_size = 1;
-        let r = GF_2_16_Val::PRIMITIVE_ROOT;
-        let velems: Vec<GF_2_16_Val> = vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)];
+        testfunc(GF_2_8::PRIMITIVE_ROOT);
+        testfunc(GF_2_16_Val::PRIMITIVE_ROOT);
 
-        let datav: Vec<u8> = (0..160).collect();
+        fn testfunc<F: FiniteField>(r: F) {
+            let data_size = 4;
+            let parity_size = 1;
+            let velems: Vec<F> = vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)];
 
-        let mut encoded: Vec<Encoded> = encode_by_RSV(data_size, parity_size, &velems, &datav);
+            let datav: Vec<u8> = (0..160).collect();
+            let mut encoded: Vec<Encoded> = encode_by_RSV(data_size, parity_size, &velems, &datav);
 
-        encoded.remove(0);
-        let decoded: Vec<u8> = decode_by_RSV(data_size, parity_size, &velems, encoded);
+            encoded.remove(0);
+            let decoded: Vec<u8> = decode_by_RSV(data_size, parity_size, &velems, encoded);
 
-        assert_eq!(decoded, datav);
+            assert_eq!(decoded, datav);
+        }
     }
 }
