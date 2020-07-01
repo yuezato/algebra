@@ -1,22 +1,7 @@
-use crate::matrix::*;
-// use crate::vandermonde::*;
 use crate::fin_field::*;
+use crate::matrix::*;
+use crate::vandermonde::*;
 
-/*
-1. Vec<u8>から行数とbit数を引数にして行列化する関数を作る
-2. encode: data_matrix -> <(block_num, Vec<GF>)> とする関数を作る
-3. decode: <(block_num, Vec<GF>)> -> data_matrix とする関数を作る
- 3.1. decode時には行列の行位置iについてiにだけ1があるパターンで
-      計算をskipしてメモリコピーだけで済ませるやつにする
- 3.2. この実装だとsystematic vandermonde行列について
-      data blockの計算はすっとばせる
-*/
-
-/*
- * ここでデータベクトルからデータマトリックスを作ると
- * 巨大なメモリallocationが発生するかもしれないので
- * この段階ではsliceだけ返す。
- */
 pub fn vec_to_quasi_matrix(v: &[u8], height: usize) -> Vec<&[u8]> {
     assert!(v.len() % height == 0);
 
@@ -92,40 +77,26 @@ pub fn memory_optimized_mul3<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> 
     assert!(m.height() >= m.width());
     assert!(width % F::BYTE_SIZE == 0);
 
+    // データ行列の行ベクトルの要素数
+    // すなわち、符号化ベクトルの行ベクトルの要素数
+    let elems = width / F::BYTE_SIZE;
+
     let mut coded: Vec<u8> = vec![0; m.height() * width];
 
     for i in 0..m.height() {
-        // m[i] == 0 0 ... 1 0 .. 0 かつ m[i][l] == l
-        // なら i に l をコピーとした方が良い
         if let Some(c) = check_copyable(m[i].as_vec()) {
-            // サイズ width をコピーしてきたい
             coded[i * width..(i + 1) * width].copy_from_slice(datam[c]);
         } else {
-            // 行ベクトル m[i] と データ行列 d の乗算
-            // j: データ行列dを縦に走る変数
-            // data: データ行ベクトル
             for (j, data) in datam.iter().enumerate() {
-                // k: データ行列行ベクトルdataを横に走る変数
-                let mut k = 0;
-                loop {
-                    if k >= width {
-                        break;
-                    }
-                    let x: F = m[i][j] * F::from_bytes(&data[k..(k + F::BYTE_SIZE)]);
-                    let z: F;
-
-                    if j == 0 {
-                        // coded[0]は未初期化状態なので場合分けが必要になる
-                        z = x;
+                for k in 0..elems {
+                    let x: F = m[i][j] * F::get(data, k);
+                    let z: F = if j == 0 {
+                        x
                     } else {
-                        z = F::from_bytes(&coded[(i * width + k)..(i * width + k + F::BYTE_SIZE)])
-                            + x;
-                    }
+                        F::get(&coded, i * elems + k) + x
+                    };
 
-                    for l in 0..F::BYTE_SIZE {
-                        coded[i * width + k + l] = z.to_byte(l);
-                    }
-                    k += F::BYTE_SIZE;
+                    z.put(&mut coded, i * elems + k);
                 }
             }
         }
@@ -182,25 +153,17 @@ pub fn memory_optimized_mul<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> V
             // data: データ行ベクトル
             for (j, data) in datam.iter().enumerate() {
                 // k: データ行列行ベクトルdataを横に走る変数
-                let mut k = 0;
-                loop {
-                    if k >= width {
-                        break;
-                    }
-                    let x: F = m[i][j] * F::from_bytes(&data[k..(k + F::BYTE_SIZE)]);
-                    let z: F;
-
-                    if j == 0 {
+                for k in 0..(width / F::BYTE_SIZE) {
+                    let x: F = m[i][j] * F::get(data, k);
+                    let z: F = if j == 0 {
                         // coded[0]は未初期化状態なので場合分けが必要になる
-                        z = x;
+                        x
                     } else {
-                        z = F::from_bytes(&coded[i][k..(k + F::BYTE_SIZE)]) + x;
-                    }
+                        // 既に値を持っている場合は足し込む
+                        F::get(&coded[i], k) + x
+                    };
 
-                    for l in 0..F::BYTE_SIZE {
-                        coded[i][k + l] = z.to_byte(l);
-                    }
-                    k += F::BYTE_SIZE;
+                    z.put(&mut coded[i], k)
                 }
             }
         }
@@ -301,11 +264,85 @@ pub fn matrix_mul2<F: FiniteField>(m: &Matrix<F>, datam: &Matrix<F>) -> Matrix<F
     coded
 }
 
+pub struct Encoded(usize, Vec<u8>);
+
+impl Encoded {
+    pub fn block_num(&self) -> usize {
+        self.0
+    }
+
+    pub fn data(&self) -> &[u8] {
+        &self.1
+    }
+}
+
+#[allow(non_snake_case)]
+pub fn encode_by_RSV<F: FiniteField>(
+    data_size: usize,
+    parity_size: usize,
+    elems: &[F],
+    data: &[u8],
+) -> Vec<Encoded> {
+    debug_assert!(data_size + parity_size == elems.len());
+
+    let mds = systematic_vandermonde(
+        MatrixSize {
+            height: data_size + parity_size,
+            width: data_size,
+        },
+        elems,
+    )
+    .unwrap();
+
+    let datav: Vec<&[u8]> = vec_to_quasi_matrix(&data, mds.width());
+
+    let encoded_datav: Vec<Vec<u8>> = memory_optimized_mul(&mds, &datav);
+
+    let mut result = Vec::new();
+    for (i, data) in encoded_datav.into_iter().enumerate() {
+        result.push(Encoded(i, data));
+    }
+
+    result
+}
+
+#[allow(non_snake_case)]
+pub fn decode_by_RSV<F: FiniteField>(
+    data_size: usize,
+    parity_size: usize,
+    elems: &[F],
+    data: Vec<Encoded>,
+) -> Vec<u8> {
+    debug_assert!(data_size + parity_size == elems.len());
+
+    let mut mds = systematic_vandermonde(
+        MatrixSize {
+            height: data_size + parity_size,
+            width: data_size,
+        },
+        elems,
+    )
+    .unwrap();
+
+    let mut erased_columns: Vec<usize> = Vec::new();
+    let alive_columns: Vec<usize> = data.iter().map(|e| e.0).collect();
+    for i in 0..mds.height() {
+        if !alive_columns.contains(&i) {
+            erased_columns.push(i);
+        }
+    }
+
+    mds.drop_columns(erased_columns);
+    let decoder_matrix = mds.inverse().unwrap();
+    let encoded_data: Vec<Vec<u8>> = data.into_iter().map(|e| e.1).collect();
+
+    memory_optimized_mul4(&decoder_matrix, &encoded_data)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::field::*;
-    use crate::vandermonde::*;
     use crate::vecteur::*;
 
     #[test]
@@ -337,7 +374,7 @@ mod tests {
                 height: 4,
                 width: 4,
             },
-            vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4)],
+            &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4)],
         )
         .unwrap();
 
@@ -360,7 +397,7 @@ mod tests {
         let r1 = matrix_mul2(&v1, &datam);
         let r2 = matrix_mul(&v1, &datam);
         let r3 = memory_optimized_mul(&v1, &datav_);
-        let r4 = memory_optimized_mul3(&v1, &datav_);
+        // let r4 = memory_optimized_mul3(&v1, &datav_);
 
         for i in 0..r1.height() {
             let data = &r2[i];
@@ -376,7 +413,7 @@ mod tests {
             assert_eq!(finfield_vec_to_data(r1[i].as_vec()), r3[i]);
         }
 
-        assert_eq!(r3.concat(), r4);
+        // assert_eq!(r3.concat(), r4);
     }
 
     #[test]
@@ -388,7 +425,7 @@ mod tests {
                 height: 6,
                 width: 4,
             },
-            vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5), r.exp(6)],
+            &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5), r.exp(6)],
         )
         .unwrap();
 
@@ -459,41 +496,18 @@ mod tests {
 
     #[test]
     fn enc_erase_dec_test1() {
+        let data_size = 4;
+        let parity_size = 1;
         let r = GF_2_16_Val::PRIMITIVE_ROOT;
-
-        let mds = systematic_vandermonde(
-            MatrixSize {
-                height: 5,
-                width: 4,
-            },
-            vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)],
-        )
-        .unwrap();
+        let velems: Vec<GF_2_16_Val> = vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)];
 
         let datav: Vec<u8> = (0..160).collect();
-        let datav: Vec<&[u8]> = vec_to_quasi_matrix(&datav, mds.width());
 
-        let mut encoded_datav: Vec<Vec<u8>> = memory_optimized_mul(&mds, &datav);
+        let mut encoded: Vec<Encoded> = encode_by_RSV(data_size, parity_size, &velems, &datav);
 
-        encoded_datav.remove(0);
+        encoded.remove(0);
+        let decoded: Vec<u8> = decode_by_RSV(data_size, parity_size, &velems, encoded);
 
-        // データ消失した位置に対応する行ベクトルを削除する
-        let mut erased_mds = mds.clone();
-        erased_mds.drop_columns(vec![0]);
-        let decoder_matrix = erased_mds.inverse().unwrap();
-
-        // Vec<Vec<u8>> -> Vec<u8> は コスト高いので
-        // 直接計算する関数を準備しておく
-        let decoded_datav: Vec<Vec<u8>> = memory_optimized_mul2(&decoder_matrix, &encoded_datav);
-
-        let decoded2: Vec<u8> = memory_optimized_mul4(&decoder_matrix, &encoded_datav);
-
-        for i in 0..datav.len() {
-            let a: &[u8] = datav[i];
-            let b: &Vec<u8> = &decoded_datav[i];
-            assert_eq!(a, &b[..]);
-        }
-
-        assert_eq!(decoded_datav.concat(), decoded2);
+        assert_eq!(decoded, datav);
     }
 }

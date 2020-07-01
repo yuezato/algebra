@@ -13,7 +13,7 @@ use std::convert::TryInto;
  *
  * Note: n == m is not needed
  */
-pub fn vandermonde<F: Field>(size: MatrixSize, v: Vec<F>) -> Option<Matrix<F>> {
+pub fn vandermonde<F: Field>(size: MatrixSize, v: &[F]) -> Option<Matrix<F>> {
     let mut m = Matrix::new(size);
 
     // vの要素を縦に並べることになるのでサイズ検査
@@ -43,7 +43,7 @@ pub fn vandermonde<F: Field>(size: MatrixSize, v: Vec<F>) -> Option<Matrix<F>> {
     Some(m)
 }
 
-pub fn systematic_vandermonde<F: Field>(size: MatrixSize, v: Vec<F>) -> Option<Matrix<F>> {
+pub fn systematic_vandermonde<F: Field>(size: MatrixSize, v: &[F]) -> Option<Matrix<F>> {
     let m = vandermonde(size, v);
 
     if let Some(m) = m {
@@ -70,7 +70,7 @@ mod tests {
                 height: 4,
                 width: 4,
             },
-            vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4)],
+            &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4)],
         )
         .unwrap();
 
@@ -82,7 +82,7 @@ mod tests {
                 height: 4,
                 width: 4,
             },
-            vec![r.exp(2), r.exp(2), r.exp(3), r.exp(4)],
+            &vec![r.exp(2), r.exp(2), r.exp(3), r.exp(4)],
         );
 
         assert!(v2.is_none());
@@ -92,7 +92,7 @@ mod tests {
                 height: 5,
                 width: 4,
             },
-            vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)],
+            &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)],
         )
         .unwrap();
 
@@ -115,7 +115,7 @@ mod tests {
                 height: 5,
                 width: 4,
             },
-            vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)],
+            &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)],
         )
         .unwrap();
 

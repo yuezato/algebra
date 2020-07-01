@@ -15,6 +15,22 @@ pub trait FiniteField: Field {
     fn from_bytes(v: &[u8]) -> Self;
 
     fn to_byte(&self, idx: usize) -> u8;
+
+    fn get(v: &[u8], idx: usize) -> Self {
+        debug_assert!(v.len() % Self::BYTE_SIZE == 0);
+        debug_assert!(v.len() >= (idx + 1) * Self::BYTE_SIZE);
+
+        Self::from_bytes(&v[idx * Self::BYTE_SIZE..(idx + 1) * Self::BYTE_SIZE])
+    }
+
+    fn put(&self, v: &mut [u8], idx: usize) {
+        debug_assert!(v.len() % Self::BYTE_SIZE == 0);
+        debug_assert!(v.len() >= (idx + 1) * Self::BYTE_SIZE);
+
+        for i in 0..Self::BYTE_SIZE {
+            v[idx * Self::BYTE_SIZE + i] = self.to_byte(i);
+        }
+    }
 }
 
 /*
