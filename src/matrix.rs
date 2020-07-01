@@ -40,6 +40,10 @@ pub struct MatrixSize {
 }
 
 impl<F: Field> Matrix<F> {
+    pub fn iter(&self) -> impl Iterator<Item = &Vecteur<F>> {
+        self.inner.iter()
+    }
+
     /*
      * x-行ベクトルとy-行ベクトルを入れ替える
      */
