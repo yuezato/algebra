@@ -276,21 +276,28 @@ impl Encoded {
     }
 }
 
+// TODO: 行列のサイズは大したことがないので
+// ここで返してしまっても良い気がする。
 #[allow(non_snake_case)]
-pub fn encode_by_RSV<F: FiniteField>(
+pub fn encode_by_RSV<F: FiniteField + HasPrimitiveElement>(
     data_size: usize,
     parity_size: usize,
-    elems: &[F],
     data: &[u8],
 ) -> Vec<Encoded> {
-    debug_assert!(data_size + parity_size == elems.len());
+    // FIX:
+    // 本当は data_size + parity_size <= F::CARDINALITY - 2
+    // (-2は0と1を取り除くため)を確認する必要あり。
+
+    let velems: Vec<F> = (1..=(data_size + parity_size))
+        .map(|i| F::PRIMITIVE_ELEMENT.exp(i as u32))
+        .collect();
 
     let mds = systematic_vandermonde(
         MatrixSize {
             height: data_size + parity_size,
             width: data_size,
         },
-        elems,
+        &velems,
     )
     .unwrap();
 
@@ -307,20 +314,24 @@ pub fn encode_by_RSV<F: FiniteField>(
 }
 
 #[allow(non_snake_case)]
-pub fn decode_by_RSV<F: FiniteField>(
+pub fn decode_by_RSV<F: FiniteField + HasPrimitiveElement>(
     data_size: usize,
     parity_size: usize,
-    elems: &[F],
     data: Vec<Encoded>,
 ) -> Vec<u8> {
-    debug_assert!(data_size + parity_size == elems.len());
+    // FIX
+    // data_size + parity_size <= F::CARDINALITY - 2
+
+    let velems: Vec<F> = (1..=(data_size + parity_size))
+        .map(|i| F::PRIMITIVE_ELEMENT.exp(i as u32))
+        .collect();
 
     let mut mds = systematic_vandermonde(
         MatrixSize {
             height: data_size + parity_size,
             width: data_size,
         },
-        elems,
+        &velems,
     )
     .unwrap();
 
@@ -511,19 +522,18 @@ mod tests {
 
     #[test]
     fn enc_erase_dec_test1() {
-        testfunc(GF_2_8::PRIMITIVE_ROOT);
-        testfunc(GF_2_16_Val::PRIMITIVE_ROOT);
+        testfunc::<GF_2_8>();
+        testfunc::<GF_2_16_Val>();
 
-        fn testfunc<F: FiniteField>(r: F) {
+        fn testfunc<F: FiniteField + HasPrimitiveElement>() {
             let data_size = 4;
             let parity_size = 1;
-            let velems: Vec<F> = vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)];
 
             let datav: Vec<u8> = (0..160).collect();
-            let mut encoded: Vec<Encoded> = encode_by_RSV(data_size, parity_size, &velems, &datav);
+            let mut encoded: Vec<Encoded> = encode_by_RSV::<F>(data_size, parity_size, &datav);
 
             encoded.remove(0);
-            let decoded: Vec<u8> = decode_by_RSV(data_size, parity_size, &velems, encoded);
+            let decoded: Vec<u8> = decode_by_RSV::<F>(data_size, parity_size, encoded);
 
             assert_eq!(decoded, datav);
         }
