@@ -33,6 +33,10 @@ pub trait FiniteField: Field {
     }
 }
 
+pub trait HasPrimitiveElement {
+    const PRIMITIVE_ELEMENT: Self;
+}
+
 /*
  * The section of GF(2)
  */
@@ -168,6 +172,10 @@ pub struct GF_2_8(u8);
 impl GF_2_8 {
     // 1 \alpha^1 + 0 \alpha^0
     pub const PRIMITIVE_ROOT: GF_2_8 = GF_2_8(0b10);
+}
+
+impl HasPrimitiveElement for GF_2_8 {
+    const PRIMITIVE_ELEMENT: GF_2_8 = GF_2_8(0b10);
 }
 
 impl Field for GF_2_8 {
@@ -376,6 +384,10 @@ pub struct GF_2_16_Val(u16);
 impl GF_2_16_Val {
     // 1 \alpha^1 + 0 \alpha^0
     pub const PRIMITIVE_ROOT: GF_2_16_Val = GF_2_16_Val(0b10);
+}
+
+impl HasPrimitiveElement for GF_2_16_Val {
+    const PRIMITIVE_ELEMENT: GF_2_16_Val = GF_2_16_Val(0b10);
 }
 
 impl Field for GF_2_16_Val {
