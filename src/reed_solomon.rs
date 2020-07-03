@@ -1,6 +1,7 @@
 use crate::fin_field::*;
 use crate::matrix::*;
 use crate::vandermonde::*;
+use std::ops::{Index, IndexMut};
 
 pub fn vec_to_quasi_matrix(v: &[u8], height: usize) -> Vec<&[u8]> {
     assert!(v.len() % height == 0);
@@ -61,6 +62,66 @@ fn check_copyable<F: FiniteField>(v: &[F]) -> Option<usize> {
     }
 
     res
+}
+
+pub struct ImmutableMatrix<T> {
+    height: usize,
+    width: usize,
+    inner: Vec<T>,
+}
+
+impl<T: Clone> ImmutableMatrix<T> {
+    pub fn new(initializing_value: T, size: MatrixSize) -> Self {
+        let height = size.height;
+        let width = size.width;
+        let size = height * width;
+
+        ImmutableMatrix {
+            height,
+            width,
+            inner: vec![initializing_value; size],
+        }
+    }
+
+    pub fn into_vec(self) -> Vec<T> {
+        self.inner
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
+    }
+
+    pub fn to_nested_vec(&self) -> Vec<&[T]> {
+        let mut v: Vec<&[T]> = Vec::new();
+        let step: usize = self.width();
+        for i in 0..self.height {
+            v.push(&self.inner[i * step..(i + 1) * step]);
+        }
+
+        v
+    }
+}
+
+impl<T> Index<usize> for ImmutableMatrix<T> {
+    type Output = [T];
+
+    fn index(&self, idx: usize) -> &[T] {
+        let begin = self.width * idx;
+        let end = self.width * (idx + 1);
+        &self.inner[begin..end]
+    }
+}
+
+impl<T> IndexMut<usize> for ImmutableMatrix<T> {
+    fn index_mut(&mut self, idx: usize) -> &mut [T] {
+        let begin = self.width * idx;
+        let end = self.width * (idx + 1);
+        &mut self.inner[begin..end]
+    }
 }
 
 pub fn memory_optimized_mul4<F: FiniteField>(m: &Matrix<F>, datam: &[Vec<u8>]) -> Vec<u8> {
@@ -139,31 +200,78 @@ pub fn memory_optimized_mul<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> V
         // coded[i] を reserve
         coded.push(vec![0; width]);
 
-        // m[i] == 0 0 ... 1 0 .. 0 かつ m[i][l] == l
-        // なら i に l をコピーとした方が良い
-        if let Some(c) = check_copyable(m[i].as_vec()) {
-            // これは m[i] = 0 0 0 ... 1 ... 0 0 の形をしていて
-            // m[i][c] = 1 ほかは全て 0 であったといっている。
-            // この形の行をデータ行列にかける時には c列目 をコピーすれば良い
-            // コピーするだけで良い
-            coded[i].copy_from_slice(datam[c]);
-        } else {
-            // 行ベクトル m[i] と データ行列 d の乗算
-            // j: データ行列dを縦に走る変数
-            // data: データ行ベクトル
-            for (j, data) in datam.iter().enumerate() {
-                // k: データ行列行ベクトルdataを横に走る変数
+        for (j, data) in datam.iter().enumerate() {
+            if m[i][j] == F::ZERO {
+                // 結果行列に対して何もしなくて良い
+            } else if m[i][j] == F::ONE {
+                // データ行ベクトルとのXORを取れば良い
+                xor_vecs(&mut coded[i], data);
+            } else {
+                // 最適化ができない場合
+                // k: データ行列の行ベクトルdata上を走る変数
                 for k in 0..(width / F::BYTE_SIZE) {
-                    let x: F = m[i][j] * F::get(data, k);
-                    let z: F = if j == 0 {
-                        // coded[0]は未初期化状態なので場合分けが必要になる
-                        x
-                    } else {
-                        // 既に値を持っている場合は足し込む
-                        F::get(&coded[i], k) + x
-                    };
+                    mul_and_xor_vecs(m[i][j], k, &mut coded[i], data);
+                }
+            }
+        }
+    }
 
-                    z.put(&mut coded[i], k)
+    coded
+}
+
+// v1 ^= v2;
+pub fn xor_vecs(v1: &mut [u8], v2: &[u8]) {
+    debug_assert!(v1.len() == v2.len());
+
+    for i in 0..v1.len() {
+        v1[i] ^= v2[i];
+    }
+}
+
+// v1 ^= k * v2;
+pub fn mul_and_xor_vecs<F: FiniteField>(k: F, idx: usize, v1: &mut [u8], v2: &[u8]) {
+    let x: F = k * F::get(v2, idx);
+    let z: F = F::get(v1, idx) + x;
+    z.put(v1, idx);
+}
+
+pub fn mom<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> ImmutableMatrix<u8> {
+    let width = datam[0].len();
+
+    assert!(m.height() >= m.width());
+    assert!(width % F::BYTE_SIZE == 0);
+
+    // We assume
+    //   F::ZERO == 0^{F::BYTE_SIZE}
+    let mut coded: ImmutableMatrix<u8> = ImmutableMatrix::new(
+        0u8,
+        MatrixSize {
+            height: m.height(),
+            width,
+        },
+    );
+
+    for i in 0..m.height() {
+        // 行ベクトル m[i] と データ行列 d の乗算
+        // j: データ行列を縦に走る変数
+        // data: データ行ベクトル
+        //
+        // m[i][j] *  データ"行"ベクトルの結果を
+        // 結果行列[i][k]に足していく
+        //
+        // データ"列"ベクトルを使わないので
+        // 結果行列[i][k]が求まるわけではないことに注意
+        for (j, data) in datam.iter().enumerate() {
+            if m[i][j] == F::ZERO {
+                // 結果行列に対して何もしなくて良い
+            } else if m[i][j] == F::ONE {
+                // データ行ベクトルとのXORを取れば良い
+                xor_vecs(&mut coded[i], data);
+            } else {
+                // 最適化ができない場合
+                // k: データ行列の行ベクトルdata上を走る変数
+                for k in 0..(width / F::BYTE_SIZE) {
+                    mul_and_xor_vecs(m[i][j], k, &mut coded[i], data);
                 }
             }
         }
@@ -306,9 +414,9 @@ pub fn encode_by_RSV<F: FiniteField + HasPrimitiveElement>(
 
     let datav: Vec<&[u8]> = vec_to_quasi_matrix(&data, mds.width());
 
-    let encoded_datav: Vec<Vec<u8>> = memory_optimized_mul(&mds, &datav);
+    let encoded_datav = memory_optimized_mul(&mds, &datav);
 
-    let mut result = Vec::new();
+    let mut result: Vec<Encoded> = Vec::new();
     for (i, data) in encoded_datav.into_iter().enumerate() {
         result.push(Encoded(i, data));
     }
@@ -331,9 +439,9 @@ pub fn decode_by_RSV<F: FiniteField>(generator: Generator<F>, data: Vec<Encoded>
 
     generator.drop_columns(erased_columns);
     let decoder_matrix = generator.inverse().unwrap();
-    let encoded_data: Vec<Vec<u8>> = data.into_iter().map(|e| e.1).collect();
+    let encoded_data: Vec<&[u8]> = data.iter().map(|e| &e.1[..]).collect();
 
-    memory_optimized_mul4(&decoder_matrix, &encoded_data)
+    mom(&decoder_matrix, &encoded_data).into_vec()
 }
 
 #[cfg(test)]
@@ -402,6 +510,7 @@ mod tests {
             let r2 = matrix_mul(&v1, &datam);
             let r3 = memory_optimized_mul(&v1, &datav_);
             let r4 = memory_optimized_mul3(&v1, &datav_);
+            let r5 = mom(&v1, &datav_);
 
             for i in 0..r1.height() {
                 let data = &r2[i];
@@ -418,6 +527,7 @@ mod tests {
             }
 
             assert_eq!(r3.concat(), r4);
+            assert_eq!(r5.into_vec(), r4);
         }
     }
 
@@ -458,6 +568,7 @@ mod tests {
             let r2 = matrix_mul(&v1, &datam);
             let r3 = memory_optimized_mul(&v1, &datav_);
             let r4 = memory_optimized_mul3(&v1, &datav_);
+            let r5 = mom(&v1, &datav_);
 
             for i in 0..r1.height() {
                 let data = &r2[i];
@@ -474,6 +585,7 @@ mod tests {
             }
 
             assert_eq!(r3.concat(), r4);
+            assert_eq!(r5.into_vec(), r4);
         }
     }
 
@@ -519,8 +631,8 @@ mod tests {
             let (generator, mut encoded) = encode_by_RSV::<F>(data_size, parity_size, &datav);
 
             encoded.remove(0);
-            let decoded: Vec<u8> = decode_by_RSV::<F>(generator, encoded);
 
+            let decoded: Vec<u8> = decode_by_RSV::<F>(generator, encoded);
             assert_eq!(decoded, datav);
         }
     }
