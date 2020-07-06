@@ -36,6 +36,14 @@ impl AliveBlocks {
         }
     }
 
+    pub fn from_alive_vec(blocks: usize, v: &Vec<usize>) -> Self {
+        let mut inner = 0;
+        for e in v {
+            inner |= 1 << *e;
+        }
+        Self { inner, blocks }
+    }
+
     pub fn new(blocks: usize) -> Self {
         Self { inner: 0, blocks }
     }
@@ -82,6 +90,16 @@ impl AliveBlocks {
         }
         v
     }
+
+    pub fn erased_blocks(&self) -> Vec<usize> {
+        let mut v = Vec::new();
+        for i in 0..self.blocks {
+            if !self.at(i) {
+                v.push(i);
+            }
+        }
+        v
+    }
 }
 
 pub fn decode_matrix<F: FiniteField>(
@@ -96,11 +114,11 @@ pub fn decode_matrix<F: FiniteField>(
     }
 
     // 前方優先にするのはできるだけ単位行列に近づけたいから
-    let remove_blocks: Vec<usize> = alive.alive_blocks()[generator.width()..].to_vec();
-
+    let mut remove_blocks: Vec<usize> = alive.alive_blocks()[generator.width()..].to_vec();
+    remove_blocks.append(&mut alive.erased_blocks());
     generator.drop_columns(remove_blocks);
 
-    Some(generator)
+    generator.inverse()
 }
 
 pub fn make_decode_multable<F: FiniteField>(
@@ -135,21 +153,15 @@ pub fn decode_by_table<F: FiniteField>(
 ) -> Vec<u8> {
     let alive_nums: Vec<usize> = data.iter().map(|e| e.block_num()).collect();
     let block_nums = generator.matrix().height();
-    let mut alive = vec![false; block_nums];
-    for i in 0..block_nums {
-        if alive_nums.contains(&i) {
-            alive[i] = true;
-        }
-    }
-    let alive = AliveBlocks::from_boolvec(&alive);
+    let alive = AliveBlocks::from_alive_vec(block_nums, &alive_nums);
 
     let encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
 
     let m = decode_matrix(generator.take_matrix(), &alive).unwrap();
     let mul_table = &table[&alive];
 
-    // mom2(&m, mul_table, &encoded_data).into_vec()
-    mom(&m, &encoded_data).into_vec()
+    mom2(&m, mul_table, &encoded_data).into_vec()
+    // mom(&m, &encoded_data).into_vec()
 }
 
 #[cfg(test)]
