@@ -333,6 +333,12 @@ pub struct MulTable<F: FiniteField> {
 }
 
 impl<T: FiniteField> MulTable<T> {
+    pub fn build(m: &Matrix<T>) -> Self {
+        let mut table = MulTable::new(m.size());
+        table.setup(m);
+        table
+    }
+
     pub fn new(size: MatrixSize) -> Self {
         let elems = size.height * size.width;
         let mut inner = Vec::new();
@@ -528,6 +534,10 @@ impl<T: FiniteField> Generator<T> {
 
     pub fn matrix(&self) -> &Matrix<T> {
         &self.0
+    }
+
+    pub fn take_matrix(self) -> Matrix<T> {
+        self.0
     }
 }
 

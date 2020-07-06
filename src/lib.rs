@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
+pub mod erasure_code;
 pub mod field;
 pub mod fin_field;
 pub mod matrix;
