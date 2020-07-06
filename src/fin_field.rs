@@ -11,10 +11,14 @@ pub trait FiniteField: Field {
 
     // 体の要素として埋め込めるバイト数
     const BYTE_SIZE: usize;
+    const CARDINALITY: usize;
+    type RepType;
 
     fn from_bytes(v: &[u8]) -> Self;
 
     fn to_byte(&self, idx: usize) -> u8;
+
+    fn to_usize(&self) -> usize;
 
     fn get(v: &[u8], idx: usize) -> Self {
         debug_assert!(v.len() % Self::BYTE_SIZE == 0);
@@ -31,6 +35,12 @@ pub trait FiniteField: Field {
             v[idx * Self::BYTE_SIZE + i] = self.to_byte(i);
         }
     }
+
+    // v1 += k*v2;
+    fn mul_then_add(k: Self, v1: &mut [u8], v2: &[u8]);
+
+    // v1 += k*w2;
+    fn mul_then_add2(mul_table: &[Self], v1: &mut [u8], v2: &[u8]);
 }
 
 pub trait HasPrimitiveElement: Copy {
@@ -128,6 +138,8 @@ impl FiniteField for GF_2 {
     }
 
     const BYTE_SIZE: usize = 0;
+    const CARDINALITY: usize = 2;
+    type RepType = bool;
 
     fn from_bytes(v: &[u8]) -> GF_2 {
         debug_assert!(v.len() == 1);
@@ -150,6 +162,22 @@ impl FiniteField for GF_2 {
             1
         }
     }
+
+    fn to_usize(&self) -> usize {
+        if !self.value {
+            0
+        } else {
+            1
+        }
+    }
+
+    fn mul_then_add(_k: Self, _v1: &mut [u8], _v2: &[u8]) {
+        panic!("undefined");
+    }
+
+    fn mul_then_add2(_mul_table: &[Self], _v1: &mut [u8], _v2: &[u8]) {
+        panic!("undefined");
+    }
 }
 
 /*
@@ -158,7 +186,7 @@ impl FiniteField for GF_2 {
 
 lazy_static! {
     // use x^8 + x^4 + x^3 + x^2 + 1.
-    static ref GF_2_8_IMPL: GF_2_8_impl = GF_2_8_impl::new(
+    pub static ref GF_2_8_IMPL: GF_2_8_impl = GF_2_8_impl::new(
         Poly::from_vec( vec![
             (8, GF_2::ONE), (4, GF_2::ONE), (3, GF_2::ONE), (2, GF_2::ONE), (0, GF_2::ONE)
         ])
@@ -196,6 +224,8 @@ impl FiniteField for GF_2_8 {
     }
 
     const BYTE_SIZE: usize = 1;
+    const CARDINALITY: usize = 0x100;
+    type RepType = u8;
 
     fn from_bytes(v: &[u8]) -> Self {
         debug_assert!(v.len() == 1);
@@ -207,6 +237,25 @@ impl FiniteField for GF_2_8 {
         debug_assert!(idx == 0);
 
         self.0
+    }
+
+    fn to_usize(&self) -> usize {
+        self.0.into()
+    }
+
+    fn mul_then_add(k: Self, v1: &mut [u8], v2: &[u8]) {
+        for i in 0..v1.len() {
+            let x: u8 = (k * v2[i].into()).into();
+            v1[i] ^= x;
+        }
+    }
+
+    fn mul_then_add2(mul_table: &[Self], v1: &mut [u8], v2: &[u8]) {
+        for i in 0..v1.len() {
+            let x = mul_table[v2[i] as usize];
+            let x: u8 = x.into();
+            v1[i] ^= x;
+        }
     }
 }
 
@@ -300,7 +349,7 @@ impl GF_2_8_impl {
     }
 
     pub fn new(ppoly: Poly<GF_2>) -> GF_2_8_impl {
-        assert!(ppoly.degree() == Some(8));
+        debug_assert!(ppoly.degree() == Some(8));
 
         let mut psi: Vec<GF_2_8> = vec![0.into(); (GF_2_8_impl::MAX_EXP + 1) as usize];
         let mut phi: Vec<u8> = vec![0; GF_2_8_impl::ORDER as usize];
@@ -326,8 +375,8 @@ impl GF_2_8_impl {
         GF_2_8_impl { ppoly, psi, phi }
     }
 
-    pub fn ppoly(self) -> Poly<GF_2> {
-        self.ppoly
+    pub fn ppoly(&self) -> &Poly<GF_2> {
+        &self.ppoly
     }
 
     pub fn mul(&self, p: GF_2_8, q: GF_2_8) -> GF_2_8 {
@@ -370,7 +419,7 @@ impl GF_2_8_impl {
 
 lazy_static! {
     // use x^16 + x^12 + x^3 + x^1 + 1.
-    static ref GF_2_16_IMPL: GF_2_16 = GF_2_16::new(
+    pub static ref GF_2_16_IMPL: GF_2_16 = GF_2_16::new(
         Poly::from_vec( vec![
             (16, GF_2::ONE), (12, GF_2::ONE), (3, GF_2::ONE), (1, GF_2::ONE), (0, GF_2::ONE)
         ])
@@ -408,19 +457,42 @@ impl FiniteField for GF_2_16_Val {
     }
 
     const BYTE_SIZE: usize = 2;
+    const CARDINALITY: usize = 0x1_00_00;
+    type RepType = u16;
 
     fn from_bytes(v: &[u8]) -> Self {
-        assert!(v.len() == 2);
+        debug_assert!(v.len() == 2);
 
         let r: u16 = (u16::from(v[1]) << 8) | u16::from(v[0]);
         GF_2_16_Val(r)
     }
 
     fn to_byte(&self, idx: usize) -> u8 {
-        assert!(idx == 0 || idx == 1);
+        debug_assert!(idx == 0 || idx == 1);
 
         let v: u8 = ((self.0 >> (8 * idx)) & 0xff).try_into().unwrap();
         v
+    }
+
+    fn to_usize(&self) -> usize {
+        self.0.into()
+    }
+
+    fn mul_then_add(k: Self, v1: &mut [u8], v2: &[u8]) {
+        for i in (0..v1.len()).step_by(Self::BYTE_SIZE) {
+            let x = k * Self::from_bytes(&v2[i..i + 2]);
+            v1[i] ^= x.to_byte(0);
+            v1[i + 1] ^= x.to_byte(1);
+        }
+    }
+
+    fn mul_then_add2(mul_table: &[Self], v1: &mut [u8], v2: &[u8]) {
+        for i in (0..v1.len()).step_by(Self::BYTE_SIZE) {
+            let idx: u16 = Self::from_bytes(&v2[i..i + 2]).into();
+            let x: Self = mul_table[idx as usize];
+            v1[i] ^= x.to_byte(0);
+            v1[i + 1] ^= x.to_byte(1);
+        }
     }
 }
 
@@ -535,7 +607,8 @@ impl GF_2_16 {
         // psi : \alpha^i -> reduced poly
         // Therefore, psi[0] is the (1 % P).
         // psi[0] is not the 0.
-        let mut psi: Vec<GF_2_16_Val> = vec![0.into(); (GF_2_16::MAX_EXP + 1) as usize];
+        let mut psi: Vec<GF_2_16_Val> =
+            vec![0.into(); GF_2_16::MODULO as usize + GF_2_16::MAX_EXP as usize + 1];
 
         // phi : the almost inverse of psi
         // **Notice** phi[max_exp] should be valid
@@ -572,6 +645,7 @@ impl GF_2_16 {
 
             // psi(\alpha^i) = \alpha^i % P
             psi[i as usize] = rep;
+            psi[i as usize + GF_2_16::MODULO as usize] = rep;
 
             // phi(\alpha^i % P) = \alpha^i
             phi[bin_rep as usize] = i;
@@ -580,8 +654,8 @@ impl GF_2_16 {
         GF_2_16 { ppoly, psi, phi }
     }
 
-    pub fn ppoly(self) -> Poly<GF_2> {
-        self.ppoly
+    pub fn ppoly(&self) -> &Poly<GF_2> {
+        &self.ppoly
     }
 
     /// For p, q: reduced poly
@@ -600,20 +674,19 @@ impl GF_2_16 {
 
         // alpha^i * alpha^j = alpha^{i + j} = \alpha^{(i + j) % modulo}
         // Since \alpha^modulo = 1
-        let i_j = (i + j) % (GF_2_16::MODULO as u32);
-        self.psi[i_j as usize]
+        self.psi[(i + j) as usize]
     }
 
     pub fn mul_inv(&self, p: GF_2_16_Val) -> GF_2_16_Val {
         let p = u16::from(p);
 
         // pは零元でないと仮定して
-        assert!(p != 0);
+        debug_assert!(p != 0);
 
         // alpha^i = p
         let i = self.phi[p as usize];
         // since a^modulo = 1
-        let inv = (GF_2_16::MODULO - i) % GF_2_16::MODULO;
+        let inv = GF_2_16::MODULO - i;
         self.psi[inv as usize]
     }
 

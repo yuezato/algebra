@@ -209,9 +209,36 @@ pub fn memory_optimized_mul<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> V
             } else {
                 // 最適化ができない場合
                 // k: データ行列の行ベクトルdata上を走る変数
+                /*
                 for k in 0..(width / F::BYTE_SIZE) {
                     mul_and_xor_vecs(m[i][j], k, &mut coded[i], data);
                 }
+                 */
+                F::mul_then_add(m[i][j], &mut coded[i], data);
+            }
+        }
+    }
+
+    coded
+}
+
+pub fn mom3<F: FiniteField>(m: &Matrix<F>, table: &MulTable<F>, datam: &[&[u8]]) -> Vec<Vec<u8>> {
+    let width = datam[0].len();
+
+    assert!(m.height() >= m.width());
+    assert!(width % F::BYTE_SIZE == 0);
+
+    let mut coded: Vec<Vec<u8>> = Vec::new();
+
+    for i in 0..m.height() {
+        coded.push(vec![0; width]);
+
+        for (j, data) in datam.iter().enumerate() {
+            if m[i][j] == F::ZERO {
+            } else if m[i][j] == F::ONE {
+                xor_vecs(&mut coded[i], data);
+            } else {
+                F::mul_then_add2(&table[(i, j)], &mut coded[i], data);
             }
         }
     }
@@ -223,8 +250,24 @@ pub fn memory_optimized_mul<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> V
 pub fn xor_vecs(v1: &mut [u8], v2: &[u8]) {
     debug_assert!(v1.len() == v2.len());
 
-    for i in 0..v1.len() {
-        v1[i] ^= v2[i];
+    unsafe {
+        let (prefix1, shorts1, suffix1) = v1.align_to_mut::<u128>();
+        let (prefix2, shorts2, suffix2) = v2.align_to::<u128>();
+
+        // dbg!(prefix1.len(), shorts1.len(), suffix1.len());
+        // dbg!(prefix2.len(), shorts2.len(), suffix2.len());
+
+        if !prefix1.is_empty() || !suffix1.is_empty() || !prefix2.is_empty() || !suffix2.is_empty()
+        {
+            // slow implementation
+            for i in 0..v1.len() {
+                v1[i] ^= v2[i];
+            }
+        } else {
+            for i in 0..shorts1.len() {
+                shorts1[i] ^= shorts2[i];
+            }
+        }
     }
 }
 
@@ -270,9 +313,100 @@ pub fn mom<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> ImmutableMatrix<u8
             } else {
                 // 最適化ができない場合
                 // k: データ行列の行ベクトルdata上を走る変数
+
+                /*
                 for k in 0..(width / F::BYTE_SIZE) {
                     mul_and_xor_vecs(m[i][j], k, &mut coded[i], data);
                 }
+                 */
+                F::mul_then_add(m[i][j], &mut coded[i], data);
+            }
+        }
+    }
+
+    coded
+}
+
+pub struct MulTable<F: FiniteField> {
+    inner: Vec<Vec<F>>,
+    size: MatrixSize,
+}
+
+impl<T: FiniteField> MulTable<T> {
+    pub fn new(size: MatrixSize) -> Self {
+        let elems = size.height * size.width;
+        let mut inner = Vec::new();
+
+        for _ in 0..elems {
+            let mut v = Vec::with_capacity(T::CARDINALITY);
+            unsafe {
+                v.set_len(T::CARDINALITY);
+            }
+            inner.push(v);
+        }
+        Self { inner, size }
+    }
+
+    pub fn setup(&mut self, m: &Matrix<T>) {
+        for i in 0..m.height() {
+            for j in 0..m.width() {
+                for f in T::enumerate() {
+                    let r: T = m[i][j] * f;
+                    self[(i, j)][f.to_usize()] = r;
+                }
+            }
+        }
+    }
+
+    pub fn height(&self) -> usize {
+        self.size.height
+    }
+
+    pub fn width(&self) -> usize {
+        self.size.width
+    }
+}
+
+impl<T: FiniteField> Index<(usize, usize)> for MulTable<T> {
+    type Output = Vec<T>;
+
+    fn index(&self, idx: (usize, usize)) -> &Vec<T> {
+        &self.inner[idx.0 * self.width() + idx.1]
+    }
+}
+
+impl<T: FiniteField> IndexMut<(usize, usize)> for MulTable<T> {
+    fn index_mut(&mut self, idx: (usize, usize)) -> &mut Vec<T> {
+        let pos = idx.0 * self.width() + idx.1;
+        &mut self.inner[pos]
+    }
+}
+
+pub fn mom2<F: FiniteField>(
+    m: &Matrix<F>,
+    table: &MulTable<F>,
+    datam: &[&[u8]],
+) -> ImmutableMatrix<u8> {
+    let width = datam[0].len();
+
+    assert!(m.height() >= m.width());
+    assert!(width % F::BYTE_SIZE == 0);
+
+    let mut coded: ImmutableMatrix<u8> = ImmutableMatrix::new(
+        0u8,
+        MatrixSize {
+            height: m.height(),
+            width,
+        },
+    );
+
+    for i in 0..m.height() {
+        for (j, data) in datam.iter().enumerate() {
+            if m[i][j] == F::ZERO {
+            } else if m[i][j] == F::ONE {
+                xor_vecs(&mut coded[i], data);
+            } else {
+                F::mul_then_add2(&table[(i, j)], &mut coded[i], data);
             }
         }
     }
@@ -387,6 +521,16 @@ impl Encoded {
 #[derive(Debug, Clone)]
 pub struct Generator<F: FiniteField>(Matrix<F>);
 
+impl<T: FiniteField> Generator<T> {
+    pub fn new(m: Matrix<T>) -> Self {
+        Generator(m)
+    }
+
+    pub fn matrix(&self) -> &Matrix<T> {
+        &self.0
+    }
+}
+
 // TODO: 行列のサイズは大したことがないので
 // ここで返してしまっても良い気がする。
 #[allow(non_snake_case)]
@@ -403,7 +547,8 @@ pub fn encode_by_RSV<F: FiniteField + HasPrimitiveElement>(
         .map(|i| F::PRIMITIVE_ELEMENT.exp(i as u32))
         .collect();
 
-    let mds = systematic_vandermonde(
+    let mds = modified_systematic_vandermonde(
+        // systematic_vandermonde(
         MatrixSize {
             height: data_size + parity_size,
             width: data_size,
@@ -422,6 +567,29 @@ pub fn encode_by_RSV<F: FiniteField + HasPrimitiveElement>(
     }
 
     (Generator(mds), result)
+}
+
+#[allow(non_snake_case)]
+pub fn encode_by_RSV_table<F: FiniteField + HasPrimitiveElement>(
+    matrix: &Matrix<F>,
+    table: &MulTable<F>,
+    data: &[u8],
+) -> Vec<Encoded> {
+    let data_size = matrix.width();
+    // FIX:
+    // 本当は data_size + parity_size <= F::CARDINALITY - 2
+    // (-2は0と1を取り除くため)を確認する必要あり。
+
+    let datav: Vec<&[u8]> = vec_to_quasi_matrix(&data, data_size);
+
+    let encoded_datav = mom3(matrix, table, &datav);
+
+    let mut result: Vec<Encoded> = Vec::new();
+    for (i, data) in encoded_datav.into_iter().enumerate() {
+        result.push(Encoded(i, data));
+    }
+
+    result
 }
 
 #[allow(non_snake_case)]
@@ -512,6 +680,18 @@ mod tests {
             let r4 = memory_optimized_mul3(&v1, &datav_);
             let r5 = mom(&v1, &datav_);
 
+            let r6 = {
+                let mut table = MulTable::new(v1.size());
+                table.setup(&v1);
+                mom2(&v1, &table, &datav_)
+            };
+
+            let r7 = {
+                let mut table = MulTable::new(v1.size());
+                table.setup(&v1);
+                mom3(&v1, &table, &datav_)
+            };
+
             for i in 0..r1.height() {
                 let data = &r2[i];
                 assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(data));
@@ -528,6 +708,8 @@ mod tests {
 
             assert_eq!(r3.concat(), r4);
             assert_eq!(r5.into_vec(), r4);
+            assert_eq!(r6.into_vec(), r4);
+            assert_eq!(r7.concat(), r4);
         }
     }
 
@@ -537,7 +719,8 @@ mod tests {
         testfunc(GF_2_16_Val::PRIMITIVE_ROOT);
 
         fn testfunc<F: FiniteField>(r: F) {
-            let v1 = systematic_vandermonde(
+            let v1 = modified_systematic_vandermonde(
+                // systematic_vandermonde(
                 MatrixSize {
                     height: 6,
                     width: 4,

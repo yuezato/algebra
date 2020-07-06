@@ -40,6 +40,13 @@ pub struct MatrixSize {
 }
 
 impl<F: Field> Matrix<F> {
+    pub fn size(&self) -> MatrixSize {
+        MatrixSize {
+            height: self.height(),
+            width: self.width(),
+        }
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &Vecteur<F>> {
         self.inner.iter()
     }

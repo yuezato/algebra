@@ -56,6 +56,34 @@ pub fn systematic_vandermonde<F: Field>(size: MatrixSize, v: &[F]) -> Option<Mat
     }
 }
 
+// parity submatrixの先頭に1が並ぶようにする
+pub fn modified_systematic_vandermonde<F: Field>(size: MatrixSize, v: &[F]) -> Option<Matrix<F>> {
+    let m = vandermonde(size, v);
+
+    if let Some(m) = m {
+        let mut sub = m.clone();
+        sub.drop_columns((size.width..size.height).collect());
+        let inv = sub.inverse().unwrap();
+        let mut m = &m * &inv;
+
+        for i in 0..size.width {
+            let f = m[size.width][i];
+            if f != F::ONE {
+                // 基本変形としてはデータブロック側にもかけないといけないが
+                // データブロック 0 0 .. 1 .. 0 0 にかけた分は
+                // その列に対する基本変形で元に戻せるので省略する
+                for j in size.width..size.height {
+                    m[j][i] = m[j][i] * F::mul_inv(&f);
+                }
+            }
+        }
+
+        Some(m)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,6 +139,25 @@ mod tests {
         let r = GF_2_16_Val::PRIMITIVE_ROOT;
 
         let mut sv = systematic_vandermonde(
+            MatrixSize {
+                height: 5,
+                width: 4,
+            },
+            &vec![r.exp(1), r.exp(2), r.exp(3), r.exp(4), r.exp(5)],
+        )
+        .unwrap();
+
+        // 上の方が単位行列になっていることの確認
+        sv.drop_columns(vec![4]);
+
+        assert_eq!(sv, Matrix::identity(4));
+    }
+
+    #[test]
+    fn modified_systematic_vandermonde_test() {
+        let r = GF_2_16_Val::PRIMITIVE_ROOT;
+
+        let mut sv = modified_systematic_vandermonde(
             MatrixSize {
                 height: 5,
                 width: 4,
