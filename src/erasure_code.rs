@@ -155,7 +155,7 @@ pub fn decode_by_RSV2<F: FiniteField + ToString>(
 
     let encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
     let encoded_data = &encoded_data[0..generator.matrix().width()];
-    
+
     let generator: Matrix<F> = generator.take_matrix();
 
     let m = decode_matrix(generator, &alive).unwrap();
@@ -168,16 +168,24 @@ pub fn decode_by_RSV3<F: FiniteField + ToString>(
     data: Vec<Encoded>,
 ) -> Vec<u8> {
     let generator: Matrix<F> = generator.take_matrix();
+
+    // データブロックの数
     let nr_data = generator.width();
-    let block_nums = generator.height();
+
     let parity_top_row: Vec<F> = generator.column_vec(generator.width()).as_vec().clone();
 
+    // 生きているブロックidたち
     let alive_nums: Vec<usize> = data.iter().map(|e| e.block_num()).collect();
-    let alive = AliveBlocks::from_alive_vec(block_nums, &alive_nums);
+    // 別表現
+    let alive = AliveBlocks::from_alive_vec(generator.height(), &alive_nums);
 
+    // データ部の取り出し
     let encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
+
+    // 復号に必要なデータの取り出し
     let encoded_data = &encoded_data[0..generator.width()];
-    
+
+    // 符号化済みデータの1ブロックの長さ
     let block_len = encoded_data[0].len();
 
     let mut matrix: ImmutableMatrix<u8> = ImmutableMatrix::new(
@@ -195,13 +203,14 @@ pub fn decode_by_RSV3<F: FiniteField + ToString>(
         }
     }
 
-    let erased_data_blocks: Vec<usize> = (0..generator.width()).filter(|x| !alive.at(*x)).collect();
-    let mut num_to_repair_blocks = erased_data_blocks.len();
+    // データブロックで消去された数
+    let mut num_to_repair_blocks = (0..nr_data).filter(|x| !alive.at(*x)).count();
 
     if num_to_repair_blocks == 0 {
         return matrix.into_vec();
     }
 
+    // 復号が必要なので逆行列を計算しておく
     let decoder = decode_matrix(generator, &alive).unwrap();
 
     // parity先頭が存在している場合
@@ -212,17 +221,13 @@ pub fn decode_by_RSV3<F: FiniteField + ToString>(
             .unwrap()
             .data();
 
-        for i in 0..nr_data - 1 {
-            if !alive.at(i) {
-                // 消失しているのでデコードして適切な位置に入れる
-                let row = decoder.column_vec(i).as_vec();
-                dot_prod_row_and_matrix_into(&mut matrix[i], row, &encoded_data);
-                num_to_repair_blocks -= 1;
+        for i in 0..nr_data {
+            if alive.at(i) {
+                continue;
             }
             if num_to_repair_blocks == 1 {
-                let reconstruct_block = erased_data_blocks[0];
                 let mut src: Vec<&[u8]> = matrix.to_nested_vec();
-                let dst: &[u8] = src.remove(reconstruct_block);
+                let dst: &[u8] = src.remove(i);
                 src.push(topmost_parity_block);
                 unsafe {
                     let dst: *mut u8 = dst.as_ptr() as *mut u8;
@@ -230,6 +235,11 @@ pub fn decode_by_RSV3<F: FiniteField + ToString>(
                     dot_prod_row_and_matrix_into(dst, &parity_top_row, &src);
                 }
                 return matrix.into_vec();
+            } else {
+                // 消失しているのでデコードして適切な位置に入れる
+                let row = decoder.column_vec(i).as_vec();
+                dot_prod_row_and_matrix_into(&mut matrix[i], row, &encoded_data);
+                num_to_repair_blocks -= 1;
             }
         }
         unreachable!("unreachable");
