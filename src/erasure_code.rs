@@ -194,10 +194,6 @@ pub fn decode_by_RSV2<F: FiniteField + ToString>(
         // 全部1のハズなのでassertを書くこと
         let parity_top_row: &Vec<F> = generator.column_vec(generator.width()).as_vec();
 
-        for e in parity_top_row {
-            assert!(e == &F::ONE);
-        }
-
         let data: &[&[u8]] = &encoded_data[0..generator.width()];
         let reconstructed: Vec<u8> = dot_prod_row_and_matrix(parity_top_row, data);
 
@@ -212,6 +208,72 @@ pub fn decode_by_RSV2<F: FiniteField + ToString>(
      */
     let m = decode_matrix(generator, &alive).unwrap();
     mom(&m, &encoded_data).into_vec()
+}
+
+#[allow(non_snake_case)]
+pub fn decode_by_RSV3<F: FiniteField + ToString>(
+    generator: Generator<F>,
+    data: Vec<Encoded>,
+) -> Vec<u8> {
+    let generator: Matrix<F> = generator.take_matrix();
+    let nr_data = generator.width();
+    let block_nums = generator.height();
+    let parity_top_row: Vec<F> = generator.column_vec(generator.width()).as_vec().clone();
+    
+    let alive_nums: Vec<usize> = data.iter().map(|e| e.block_num()).collect();
+    let alive = AliveBlocks::from_alive_vec(block_nums, &alive_nums);
+
+    let encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
+
+    // FIX: Vec<Vec<u8>>は回避したい
+    let mut result_data: Vec<Vec<u8>> = Vec::new();
+    for d in &data {
+        if d.block_num() < nr_data {
+            result_data.push(d.data().to_vec());
+        }
+    }
+    
+    let mut erased_data_blocks: Vec<usize> = (0..generator.width()).filter(|x| !alive.at(*x)).collect();
+
+    /*
+     * データブロックの消失が0なら元データが事実上残っているので
+     * それを返してやる
+     */
+    if erased_data_blocks.is_empty() {
+        return encoded_data[0..generator.width()].concat();
+    }
+
+    let decoder = decode_matrix(generator, &alive).unwrap();
+
+    // parity先頭が存在している場合
+    if alive.at(nr_data) {
+        let topmost_parity_block: &[u8] = data.iter().find(|x| x.block_num() == nr_data).unwrap().data();
+        result_data.push(topmost_parity_block.to_vec());
+        for i in 0..nr_data-1 {
+            if !alive.at(i) {
+                // 消失しているのでデコードして適切な位置に入れる
+                let row = decoder.column_vec(i).as_vec();
+
+                let decoded_row: Vec<u8>= dot_prod_row_and_matrix(row, &encoded_data);
+                result_data.insert(i, decoded_row);
+
+                let _ = erased_data_blocks.remove(0);
+            }
+            if erased_data_blocks.len() == 1 {
+                // 残り一つになったので topmost parity を使った復号を行う
+                // この段階では他の全ての元データが揃っていて欲しい
+                let reconstruct_block = erased_data_blocks[0];
+                let ref_data: Vec<&[u8]> = result_data.iter().map(|v| &v[..]).collect();
+                let reconstructed: Vec<u8> = dot_prod_row_and_matrix(&parity_top_row, &ref_data);
+                debug_assert!(reconstructed.len() == result_data[0].len());
+                result_data.insert(reconstruct_block, reconstructed);
+                return result_data[0..nr_data].concat();
+            }
+        }
+        unreachable!("unreachable");
+    } else {
+        mom(&decoder, &encoded_data).into_vec()
+    }
 }
 
 /*
@@ -234,6 +296,47 @@ pub fn decode_by_table<F: FiniteField + ToString>(
 
     // println!("after: \n{}", m.dump());
 
+    let mul_table = &table[&alive];
+
+    mom2(&m, mul_table, &encoded_data).into_vec()
+}
+
+#[allow(non_snake_case)]
+pub fn decode_by_table2<F: FiniteField + ToString>(
+    generator: Generator<F>,
+    table: &HashMap<AliveBlocks, MulTable<F>>,
+    data: Vec<Encoded>,
+) -> Vec<u8> {
+    let alive_nums: Vec<usize> = data.iter().map(|e| e.block_num()).collect();
+    let block_nums = generator.matrix().height();
+    let alive = AliveBlocks::from_alive_vec(block_nums, &alive_nums);
+
+    let mut encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
+
+    let generator: Matrix<F> = generator.take_matrix();
+
+    let erased_data_blocks: Vec<usize> = (0..generator.width()).filter(|x| !alive.at(*x)).collect();
+
+    if erased_data_blocks.is_empty() {
+        return encoded_data[0..generator.width()].concat();
+    }
+
+    if erased_data_blocks.len() == 1 && alive.at(generator.width()) {
+        let reconstruct_block = erased_data_blocks[0];
+
+        // 全部1のハズなのでassertを書くこと
+        let parity_top_row: &Vec<F> = generator.column_vec(generator.width()).as_vec();
+
+        let data: &[&[u8]] = &encoded_data[0..generator.width()];
+        let reconstructed: Vec<u8> = dot_prod_row_and_matrix(parity_top_row, data);
+
+        debug_assert!(reconstructed.len() == encoded_data[0].len());
+
+        encoded_data.insert(reconstruct_block, &reconstructed);
+        return encoded_data[0..generator.width()].concat();
+    }
+
+    let m = decode_matrix(generator, &alive).unwrap();
     let mul_table = &table[&alive];
 
     mom2(&m, mul_table, &encoded_data).into_vec()
@@ -309,6 +412,76 @@ mod tests {
 
             // 逆行列を使って計算する場合
             let decoded: Vec<u8> = decode_by_RSV2::<F>(generator, encoded);
+            assert!(original_data == decoded);
+        }
+    }
+
+        #[test]
+    fn test1_decode_by_rsv3() {
+        testfunc::<GF_2_8>();
+        testfunc::<GF_2_16_Val>();
+
+        fn testfunc<F: FiniteField + HasPrimitiveElement + ToString>() {
+            let data_size = 4;
+            let parity_size = 2;
+
+            const MB: usize = 1024 * 1024;
+            let original_data: Vec<u8> = (0..1 * MB).map(|_| rand::random::<u8>()).collect();
+            let (generator, encoded) = encode_by_RSV::<F>(data_size, parity_size, &original_data);
+
+            // 何も消えていない状態での復号化
+            let decoded: Vec<u8> = decode_by_RSV3::<F>(generator, encoded);
+            assert_eq!(original_data, decoded);
+        }
+    }
+
+    #[test]
+    fn test2_decode_by_rsv3() {
+        testfunc::<GF_2_8>();
+        testfunc::<GF_2_16_Val>();
+
+        fn testfunc<F: FiniteField + HasPrimitiveElement + ToString>() {
+            let data_size = 4;
+            let parity_size = 2;
+
+            const MB: usize = 1024 * 1024;
+            let original_data: Vec<u8> = (0..1 * MB).map(|_| rand::random::<u8>()).collect();
+            let (generator, mut encoded) =
+                encode_by_RSV::<F>(data_size, parity_size, &original_data);
+
+            // パリティブロック2つ目と
+            // データブロック先頭を消す
+            encoded.remove(5);
+            encoded.remove(1);
+
+            // データブロックが1つ消えているが
+            // パリティブロック先頭は残っている場合のテスト
+            let decoded: Vec<u8> = decode_by_RSV3::<F>(generator, encoded);
+            assert!(original_data == decoded);
+        }
+    }
+
+    #[test]
+    fn test3_decode_by_rsv3() {
+        testfunc::<GF_2_8>();
+        testfunc::<GF_2_16_Val>();
+
+        fn testfunc<F: FiniteField + HasPrimitiveElement + ToString>() {
+            let data_size = 4;
+            let parity_size = 2;
+
+            const MB: usize = 1024 * 1024;
+            let original_data: Vec<u8> = (0..1 * MB).map(|_| rand::random::<u8>()).collect();
+            let (generator, mut encoded) =
+                encode_by_RSV::<F>(data_size, parity_size, &original_data);
+
+            // パリティブロック先頭と
+            // データブロック先頭を消す
+            encoded.remove(5);
+            encoded.remove(1);
+
+            // 逆行列を使って計算する場合
+            let decoded: Vec<u8> = decode_by_RSV3::<F>(generator, encoded);
             assert!(original_data == decoded);
         }
     }
