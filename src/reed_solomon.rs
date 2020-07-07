@@ -315,6 +315,29 @@ pub fn dot_prod_row_and_matrix_into<F: FiniteField>(t: &mut [u8], v: &[F], s: &[
     }
 }
 
+// t (row) <- v (row) * s (matrix)
+pub fn dot_prod_row_and_matrix_by_table_into<F: FiniteField>(
+    t: &mut [u8],
+    v: &[F],
+    s: &[&[u8]],
+    table: &MulTable<F>,
+    idx: usize,
+) {
+    debug_assert!(v.len() == s.len());
+    debug_assert!(t.len() == s[0].len());
+
+    for i in 0..s.len() {
+        if v[i] == F::ZERO {
+            // 何もしなくて良い
+        } else if v[i] == F::ONE {
+            // 係数が1のxorで済む特別な場合
+            xor_vecs(t, s[i]);
+        } else {
+            F::mul_then_add2(&table[(idx, i)], t, s[i]);
+        }
+    }
+}
+
 pub fn mom<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> ImmutableMatrix<u8> {
     let width = datam[0].len();
 

@@ -248,6 +248,105 @@ pub fn decode_by_RSV3<F: FiniteField + ToString>(
     }
 }
 
+pub fn decode_by_table3<F: FiniteField + ToString>(
+    generator: Generator<F>,
+    table: &HashMap<AliveBlocks, MulTable<F>>,
+    data: Vec<Encoded>,
+) -> Vec<u8> {
+    let generator: Matrix<F> = generator.take_matrix();
+
+    // データブロックの数
+    let nr_data = generator.width();
+
+    // 生存ブロックidたち
+    let alive_nums: Vec<usize> = data.iter().map(|e| e.block_num()).collect();
+    // 別表現
+    let alive = AliveBlocks::from_alive_vec(generator.height(), &alive_nums);
+
+    // データ部の取り出し
+    let encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
+
+    // 復号に必要なデータの取り出し
+    let encoded_data = &encoded_data[0..generator.width()];
+
+    // 符号化済みデータの1ブロックの長さ
+    let block_len = encoded_data[0].len();
+
+    let mut matrix: ImmutableMatrix<u8> = ImmutableMatrix::new(
+        0,
+        MatrixSize {
+            height: nr_data,
+            width: block_len,
+        },
+    );
+
+    // 既にデータブロックが手元にある場合は復元しておく
+    for d in &data {
+        if d.block_num() < nr_data {
+            matrix[d.block_num()].copy_from_slice(d.data());
+        }
+    }
+
+    // データブロックで消去された数
+    let mut num_to_repair_blocks = (0..nr_data).filter(|x| !alive.at(*x)).count();
+
+    if num_to_repair_blocks == 0 {
+        return matrix.into_vec();
+    }
+
+    // 復号が必要なので逆行列を計算しておく
+    let decoder = decode_matrix(generator, &alive).unwrap();
+
+    // parity先頭が存在している場合
+    if alive.at(nr_data) {
+        let topmost_parity_block: &[u8] = data
+            .iter()
+            .find(|x| x.block_num() == nr_data)
+            .unwrap()
+            .data();
+
+        for i in 0..nr_data {
+            if alive.at(i) {
+                continue;
+            }
+            if num_to_repair_blocks == 1 {
+                let mut src: Vec<&[u8]> = matrix.to_nested_vec();
+                let dst: &[u8] = src.remove(i);
+                src.push(topmost_parity_block);
+                unsafe {
+                    let dst: *mut u8 = dst.as_ptr() as *mut u8;
+                    let dst: &mut [u8] = std::slice::from_raw_parts_mut(dst, src[0].len());
+
+                    // [1 1 1 1 ... 1] X の場合として特殊化
+                    specialized_dot_prod_row_and_matrix_into(dst, &src);
+                }
+                return matrix.into_vec();
+            } else {
+                // 消失しているのでデコードして適切な位置に入れる
+                let row = decoder.column_vec(i).as_vec();
+                dot_prod_row_and_matrix_by_table_into(
+                    &mut matrix[i],
+                    row,
+                    &encoded_data,
+                    &table[&alive],
+                    i,
+                );
+                num_to_repair_blocks -= 1;
+            }
+        }
+        unreachable!("unreachable");
+    } else {
+        mom2(&decoder, &table[&alive], &encoded_data).into_vec()
+    }
+}
+
+// t[i] = s[0][i] xor s[1][i] xor ... s[n][i]
+fn specialized_dot_prod_row_and_matrix_into(t: &mut [u8], s: &[&[u8]]) {
+    for i in 0..s.len() {
+        xor_vecs(t, s[i]);
+    }
+}
+
 /*
  * generator: 生成行列、符号化に使った行列そのまま
  */
