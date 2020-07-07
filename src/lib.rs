@@ -9,3 +9,6 @@ pub mod reed_solomon;
 pub mod univariate_polynomial;
 pub mod vandermonde;
 pub mod vecteur;
+
+#[cfg(test)]
+extern crate rand;
