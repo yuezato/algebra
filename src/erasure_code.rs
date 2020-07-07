@@ -2,6 +2,7 @@ use crate::fin_field::*;
 use crate::matrix::*;
 use crate::reed_solomon::*;
 use std::collections::HashMap;
+use std::string::ToString;
 
 /*
  * 1. alive情報から復号行列を作る
@@ -17,16 +18,16 @@ pub struct AliveBlocks {
 impl AliveBlocks {
     pub fn to_boolvec(&self) -> Vec<bool> {
         let mut v = vec![false; self.blocks];
-        for i in 0..self.blocks {
-            v[i] = self.at(i);
+        for (i, e) in v.iter_mut().enumerate() {
+            *e = self.at(i);
         }
         v
     }
 
-    pub fn from_boolvec(v: &Vec<bool>) -> Self {
+    pub fn from_boolvec(v: &[bool]) -> Self {
         let mut inner = 0;
-        for i in 0..v.len() {
-            if v[i] {
+        for (i, e) in v.iter().enumerate() {
+            if *e {
                 inner |= 1 << i;
             }
         }
@@ -36,7 +37,7 @@ impl AliveBlocks {
         }
     }
 
-    pub fn from_alive_vec(blocks: usize, v: &Vec<usize>) -> Self {
+    pub fn from_alive_vec(blocks: usize, v: &[usize]) -> Self {
         let mut inner = 0;
         for e in v {
             inner |= 1 << *e;
@@ -102,7 +103,7 @@ impl AliveBlocks {
     }
 }
 
-pub fn decode_matrix<F: FiniteField>(
+pub fn decode_matrix<F: FiniteField + ToString>(
     mut generator: Matrix<F>,
     alive: &AliveBlocks,
 ) -> Option<Matrix<F>> {
@@ -121,7 +122,7 @@ pub fn decode_matrix<F: FiniteField>(
     generator.inverse()
 }
 
-pub fn make_decode_multable<F: FiniteField>(
+pub fn make_decode_multable<F: FiniteField + ToString>(
     generator: &Matrix<F>,
 ) -> HashMap<AliveBlocks, MulTable<F>> {
     let blocks = generator.height();
@@ -146,7 +147,7 @@ pub fn make_decode_multable<F: FiniteField>(
 /*
  * generator: 生成行列、符号化に使った行列そのまま
  */
-pub fn decode_by_table<F: FiniteField>(
+pub fn decode_by_table<F: FiniteField + ToString>(
     generator: Generator<F>,
     table: &HashMap<AliveBlocks, MulTable<F>>,
     data: Vec<Encoded>,
@@ -157,11 +158,15 @@ pub fn decode_by_table<F: FiniteField>(
 
     let encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
 
+    println!("before: \n{}", generator.matrix().dump());
+
     let m = decode_matrix(generator.take_matrix(), &alive).unwrap();
+
+    println!("after: \n{}", m.dump());
+
     let mul_table = &table[&alive];
 
     mom2(&m, mul_table, &encoded_data).into_vec()
-    // mom(&m, &encoded_data).into_vec()
 }
 
 #[cfg(test)]

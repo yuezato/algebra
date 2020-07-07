@@ -56,7 +56,8 @@ pub fn systematic_vandermonde<F: Field>(size: MatrixSize, v: &[F]) -> Option<Mat
     }
 }
 
-// parity submatrixの先頭に1が並ぶようにする
+// 1. parity submatrixの先頭行は1だけからなるようにする
+// 2. parity submatrixの残りの行の先頭も1にしておく
 pub fn modified_systematic_vandermonde<F: Field>(size: MatrixSize, v: &[F]) -> Option<Matrix<F>> {
     let m = vandermonde(size, v);
 
@@ -66,6 +67,7 @@ pub fn modified_systematic_vandermonde<F: Field>(size: MatrixSize, v: &[F]) -> O
         let inv = sub.inverse().unwrap();
         let mut m = &m * &inv;
 
+        // 1の処理を行う
         for i in 0..size.width {
             let f = m[size.width][i];
             if f != F::ONE {
@@ -74,6 +76,16 @@ pub fn modified_systematic_vandermonde<F: Field>(size: MatrixSize, v: &[F]) -> O
                 // その列に対する基本変形で元に戻せるので省略する
                 for j in size.width..size.height {
                     m[j][i] = m[j][i] * F::mul_inv(&f);
+                }
+            }
+        }
+
+        // 2の処理を行う
+        for i in size.width + 1..size.height {
+            let f = m[i][0];
+            if f != F::ONE {
+                for j in 0..size.width {
+                    m[i][j] = m[i][j] * F::mul_inv(&f);
                 }
             }
         }

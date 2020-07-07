@@ -1,6 +1,7 @@
 use crate::field::*;
 use crate::vecteur::*;
 use std::ops::{Index, IndexMut, Mul};
+use std::string::ToString;
 
 /*
 (h, w)-Matrix is one of the form
@@ -37,6 +38,20 @@ impl<F: Field> IndexMut<usize> for Matrix<F> {
 pub struct MatrixSize {
     pub height: usize,
     pub width: usize,
+}
+
+impl<T: Field + ToString> Matrix<T> {
+    pub fn dump(&self) -> String {
+        let mut s: String = String::from("");
+        for i in 0..self.height() {
+            for j in 0..self.width() {
+                s.push_str(", ");
+                s.push_str(&self[i][j].to_string());
+            }
+            s.push_str("\n");
+        }
+        s
+    }
 }
 
 impl<F: Field> Matrix<F> {

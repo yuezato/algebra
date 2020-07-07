@@ -260,6 +260,7 @@ pub fn xor_vecs(v1: &mut [u8], v2: &[u8]) {
         if !prefix1.is_empty() || !suffix1.is_empty() || !prefix2.is_empty() || !suffix2.is_empty()
         {
             // slow implementation
+            dbg!("slow implementation");
             for i in 0..v1.len() {
                 v1[i] ^= v2[i];
             }
@@ -395,8 +396,8 @@ pub fn mom2<F: FiniteField>(
 ) -> ImmutableMatrix<u8> {
     let width = datam[0].len();
 
-    assert!(m.height() >= m.width());
-    assert!(width % F::BYTE_SIZE == 0);
+    debug_assert!(m.height() >= m.width());
+    debug_assert!(width % F::BYTE_SIZE == 0);
 
     let mut coded: ImmutableMatrix<u8> = ImmutableMatrix::new(
         0u8,

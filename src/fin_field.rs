@@ -4,6 +4,7 @@ use std::convert::TryInto;
 use std::convert::{From, Into};
 use std::fmt::Debug;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::string::ToString;
 
 pub trait FiniteField: Field {
     // 全要素を列挙する
@@ -196,6 +197,12 @@ lazy_static! {
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct GF_2_8(u8);
+
+impl ToString for GF_2_8 {
+    fn to_string(&self) -> String {
+        format!("{:#04x}", self.0)
+    }
+}
 
 impl GF_2_8 {
     // 1 \alpha^1 + 0 \alpha^0
@@ -429,6 +436,12 @@ lazy_static! {
 #[allow(non_camel_case_types)]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct GF_2_16_Val(u16);
+
+impl ToString for GF_2_16_Val {
+    fn to_string(&self) -> String {
+        format!("{:#04x}", self.0)
+    }
+}
 
 impl GF_2_16_Val {
     // 1 \alpha^1 + 0 \alpha^0
