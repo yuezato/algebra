@@ -87,6 +87,10 @@ impl<T: Clone> ImmutableMatrix<T> {
         self.inner
     }
 
+    pub fn to_vec(&self) -> &Vec<T> {
+        &self.inner
+    }
+
     pub fn width(&self) -> usize {
         self.width
     }
@@ -260,7 +264,6 @@ pub fn xor_vecs(v1: &mut [u8], v2: &[u8]) {
         if !prefix1.is_empty() || !suffix1.is_empty() || !prefix2.is_empty() || !suffix2.is_empty()
         {
             // slow implementation
-            dbg!("slow implementation");
             for i in 0..v1.len() {
                 v1[i] ^= v2[i];
             }
@@ -277,6 +280,39 @@ pub fn mul_and_xor_vecs<F: FiniteField>(k: F, idx: usize, v1: &mut [u8], v2: &[u
     let x: F = k * F::get(v2, idx);
     let z: F = F::get(v1, idx) + x;
     z.put(v1, idx);
+}
+
+pub fn dot_prod_row_and_matrix<F: FiniteField>(v: &[F], m: &[&[u8]]) -> Vec<u8> {
+    debug_assert!(v.len() == m.len());
+
+    // FIX: 0が零元だと仮定してしまっている
+    let mut res: Vec<u8> = vec![0; m[0].len()];
+
+    // i = 0の場合は初期化も兼ねてコピーだけ行う
+
+    // i > 0の場合は足し込んでいく
+    for i in 0..m.len() {
+        F::mul_then_add(v[i], &mut res[..], m[i]);
+    }
+
+    res
+}
+
+// t (row) <- v (row) * s (matrix)
+pub fn dot_prod_row_and_matrix_into<F: FiniteField>(t: &mut [u8], v: &[F], s: &[&[u8]]) {
+    debug_assert!(v.len() == s.len());
+    debug_assert!(t.len() == s[0].len());
+
+    for i in 0..s.len() {
+        if v[i] == F::ZERO {
+            // 何もしなくて良い
+        } else if v[i] == F::ONE {
+            // 係数が1のxorで済む特別な場合
+            xor_vecs(t, s[i]);
+        } else {
+            F::mul_then_add(v[i], t, s[i]);
+        }
+    }
 }
 
 pub fn mom<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> ImmutableMatrix<u8> {
@@ -323,6 +359,29 @@ pub fn mom<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> ImmutableMatrix<u8
                 F::mul_then_add(m[i][j], &mut coded[i], data);
             }
         }
+    }
+
+    coded
+}
+
+pub fn mom_another<F: FiniteField>(m: &Matrix<F>, datam: &[&[u8]]) -> ImmutableMatrix<u8> {
+    let width = datam[0].len();
+
+    assert!(m.height() >= m.width());
+    assert!(width % F::BYTE_SIZE == 0);
+
+    // We assume
+    //   F::ZERO == 0^{F::BYTE_SIZE}
+    let mut coded: ImmutableMatrix<u8> = ImmutableMatrix::new(
+        0u8,
+        MatrixSize {
+            height: m.height(),
+            width,
+        },
+    );
+
+    for i in 0..m.height() {
+        dot_prod_row_and_matrix_into(&mut coded[i], m[i].as_vec(), datam);
     }
 
     coded
@@ -703,6 +762,8 @@ mod tests {
                 mom3(&v1, &table, &datav_)
             };
 
+            let r8 = mom_another(&v1, &datav_);
+
             for i in 0..r1.height() {
                 let data = &r2[i];
                 assert_eq!(r1[i].as_vec(), &data_to_finfield_vec(data));
@@ -718,9 +779,10 @@ mod tests {
             }
 
             assert_eq!(r3.concat(), r4);
-            assert_eq!(r5.into_vec(), r4);
+            assert_eq!(r5.to_vec(), &r4);
             assert_eq!(r6.into_vec(), r4);
             assert_eq!(r7.concat(), r4);
+            assert_eq!(r5.to_vec(), r8.to_vec());
         }
     }
 
@@ -763,6 +825,7 @@ mod tests {
             let r3 = memory_optimized_mul(&v1, &datav_);
             let r4 = memory_optimized_mul3(&v1, &datav_);
             let r5 = mom(&v1, &datav_);
+            let r6 = mom_another(&v1, &datav_);
 
             for i in 0..r1.height() {
                 let data = &r2[i];
@@ -779,7 +842,8 @@ mod tests {
             }
 
             assert_eq!(r3.concat(), r4);
-            assert_eq!(r5.into_vec(), r4);
+            assert_eq!(r5.to_vec(), &r4);
+            assert_eq!(r5.to_vec(), r6.to_vec());
         }
     }
 

@@ -144,22 +144,6 @@ pub fn make_decode_multable<F: FiniteField + ToString>(
     }
 }
 
-fn dot_prod_row_and_matrix<F: FiniteField>(v: &[F], m: &[&[u8]]) -> Vec<u8> {
-    debug_assert!(v.len() == m.len());
-
-    // FIX: 0が零元だと仮定してしまっている
-    let mut res: Vec<u8> = vec![0; m[0].len()];
-
-    // i = 0の場合は初期化も兼ねてコピーだけ行う
-
-    // i > 0の場合は足し込んでいく
-    for i in 0..m.len() {
-        F::mul_then_add(v[i], &mut res[..], m[i]);
-    }
-
-    res
-}
-
 #[allow(non_snake_case)]
 pub fn decode_by_RSV2<F: FiniteField + ToString>(
     generator: Generator<F>,
@@ -169,45 +153,13 @@ pub fn decode_by_RSV2<F: FiniteField + ToString>(
     let block_nums = generator.matrix().height();
     let alive = AliveBlocks::from_alive_vec(block_nums, &alive_nums);
 
-    let mut encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
-
+    let encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
+    let encoded_data = &encoded_data[0..generator.matrix().width()];
+    
     let generator: Matrix<F> = generator.take_matrix();
 
-    let erased_data_blocks: Vec<usize> = (0..generator.width()).filter(|x| !alive.at(*x)).collect();
-
-    /*
-     * データブロックの消失が0なら元データが事実上残っているので
-     * それを返してやる
-     */
-    if erased_data_blocks.is_empty() {
-        return encoded_data[0..generator.width()].concat();
-    }
-
-    /*
-     * データブロックの消失が1未満 かつ
-     * parity先頭が消えてない場合は最適化が可能
-     */
-    // データブロックの消失数
-    if erased_data_blocks.len() == 1 && alive.at(generator.width()) {
-        let reconstruct_block = erased_data_blocks[0];
-
-        // 全部1のハズなのでassertを書くこと
-        let parity_top_row: &Vec<F> = generator.column_vec(generator.width()).as_vec();
-
-        let data: &[&[u8]] = &encoded_data[0..generator.width()];
-        let reconstructed: Vec<u8> = dot_prod_row_and_matrix(parity_top_row, data);
-
-        debug_assert!(reconstructed.len() == encoded_data[0].len());
-
-        encoded_data.insert(reconstruct_block, &reconstructed);
-        return encoded_data[0..generator.width()].concat();
-    }
-
-    /*
-     * それ以外の場合は逆行列を求めて計算する
-     */
     let m = decode_matrix(generator, &alive).unwrap();
-    mom(&m, &encoded_data).into_vec()
+    mom_another(&m, &encoded_data).into_vec()
 }
 
 #[allow(non_snake_case)]
@@ -219,60 +171,70 @@ pub fn decode_by_RSV3<F: FiniteField + ToString>(
     let nr_data = generator.width();
     let block_nums = generator.height();
     let parity_top_row: Vec<F> = generator.column_vec(generator.width()).as_vec().clone();
-    
+
     let alive_nums: Vec<usize> = data.iter().map(|e| e.block_num()).collect();
     let alive = AliveBlocks::from_alive_vec(block_nums, &alive_nums);
 
     let encoded_data: Vec<&[u8]> = data.iter().map(|e| e.data()).collect();
+    let encoded_data = &encoded_data[0..generator.width()];
+    
+    let block_len = encoded_data[0].len();
 
-    // FIX: Vec<Vec<u8>>は回避したい
-    let mut result_data: Vec<Vec<u8>> = Vec::new();
+    let mut matrix: ImmutableMatrix<u8> = ImmutableMatrix::new(
+        0,
+        MatrixSize {
+            height: nr_data,
+            width: block_len,
+        },
+    );
+
+    // 既にデータブロックが手元にある場合は復元しておく
     for d in &data {
         if d.block_num() < nr_data {
-            result_data.push(d.data().to_vec());
+            matrix[d.block_num()].copy_from_slice(d.data());
         }
     }
-    
-    let mut erased_data_blocks: Vec<usize> = (0..generator.width()).filter(|x| !alive.at(*x)).collect();
 
-    /*
-     * データブロックの消失が0なら元データが事実上残っているので
-     * それを返してやる
-     */
-    if erased_data_blocks.is_empty() {
-        return encoded_data[0..generator.width()].concat();
+    let erased_data_blocks: Vec<usize> = (0..generator.width()).filter(|x| !alive.at(*x)).collect();
+    let mut num_to_repair_blocks = erased_data_blocks.len();
+
+    if num_to_repair_blocks == 0 {
+        return matrix.into_vec();
     }
 
     let decoder = decode_matrix(generator, &alive).unwrap();
 
     // parity先頭が存在している場合
     if alive.at(nr_data) {
-        let topmost_parity_block: &[u8] = data.iter().find(|x| x.block_num() == nr_data).unwrap().data();
-        result_data.push(topmost_parity_block.to_vec());
-        for i in 0..nr_data-1 {
+        let topmost_parity_block: &[u8] = data
+            .iter()
+            .find(|x| x.block_num() == nr_data)
+            .unwrap()
+            .data();
+
+        for i in 0..nr_data - 1 {
             if !alive.at(i) {
                 // 消失しているのでデコードして適切な位置に入れる
                 let row = decoder.column_vec(i).as_vec();
-
-                let decoded_row: Vec<u8>= dot_prod_row_and_matrix(row, &encoded_data);
-                result_data.insert(i, decoded_row);
-
-                let _ = erased_data_blocks.remove(0);
+                dot_prod_row_and_matrix_into(&mut matrix[i], row, &encoded_data);
+                num_to_repair_blocks -= 1;
             }
-            if erased_data_blocks.len() == 1 {
-                // 残り一つになったので topmost parity を使った復号を行う
-                // この段階では他の全ての元データが揃っていて欲しい
+            if num_to_repair_blocks == 1 {
                 let reconstruct_block = erased_data_blocks[0];
-                let ref_data: Vec<&[u8]> = result_data.iter().map(|v| &v[..]).collect();
-                let reconstructed: Vec<u8> = dot_prod_row_and_matrix(&parity_top_row, &ref_data);
-                debug_assert!(reconstructed.len() == result_data[0].len());
-                result_data.insert(reconstruct_block, reconstructed);
-                return result_data[0..nr_data].concat();
+                let mut src: Vec<&[u8]> = matrix.to_nested_vec();
+                let dst: &[u8] = src.remove(reconstruct_block);
+                src.push(topmost_parity_block);
+                unsafe {
+                    let dst: *mut u8 = dst.as_ptr() as *mut u8;
+                    let dst: &mut [u8] = std::slice::from_raw_parts_mut(dst, src[0].len());
+                    dot_prod_row_and_matrix_into(dst, &parity_top_row, &src);
+                }
+                return matrix.into_vec();
             }
         }
         unreachable!("unreachable");
     } else {
-        mom(&decoder, &encoded_data).into_vec()
+        mom_another(&decoder, &encoded_data).into_vec()
     }
 }
 
@@ -407,7 +369,7 @@ mod tests {
 
             // パリティブロック先頭と
             // データブロック先頭を消す
-            encoded.remove(5);
+            encoded.remove(4);
             encoded.remove(1);
 
             // 逆行列を使って計算する場合
@@ -416,7 +378,7 @@ mod tests {
         }
     }
 
-        #[test]
+    #[test]
     fn test1_decode_by_rsv3() {
         testfunc::<GF_2_8>();
         testfunc::<GF_2_16_Val>();
@@ -431,7 +393,7 @@ mod tests {
 
             // 何も消えていない状態での復号化
             let decoded: Vec<u8> = decode_by_RSV3::<F>(generator, encoded);
-            assert_eq!(original_data, decoded);
+            assert!(original_data == decoded);
         }
     }
 
@@ -477,7 +439,7 @@ mod tests {
 
             // パリティブロック先頭と
             // データブロック先頭を消す
-            encoded.remove(5);
+            encoded.remove(4);
             encoded.remove(1);
 
             // 逆行列を使って計算する場合
