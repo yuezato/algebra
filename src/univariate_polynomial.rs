@@ -56,7 +56,7 @@ impl<F: Field> Poly<F> {
         self.inner.iter()
     }
 
-    fn at(&self, degree: &u32) -> F {
+    pub fn at(&self, degree: &u32) -> F {
         self.inner.get(degree).copied().unwrap_or(F::ZERO)
     }
 

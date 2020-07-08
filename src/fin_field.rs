@@ -71,8 +71,16 @@ impl GF_2 {
     const ZERO: GF_2 = GF_2 { value: false };
     const ONE: GF_2 = GF_2 { value: true };
 
-    fn mul_inv(&self) -> GF_2 {
+    pub fn mul_inv(&self) -> GF_2 {
         GF_2::ONE
+    }
+
+    pub fn to_u8(&self) -> u8 {
+        if self.value {
+            1
+        } else {
+            0
+        }
     }
 }
 
@@ -207,6 +215,22 @@ impl ToString for GF_2_8 {
 impl GF_2_8 {
     // 1 \alpha^1 + 0 \alpha^0
     pub const PRIMITIVE_ROOT: GF_2_8 = GF_2_8(0b10);
+
+    pub fn to_poly(&self) -> Poly<GF_2> {
+        let v = self.0;
+
+        let mut m = Vec::new();
+            
+        for deg in 0..8 {
+            if (v >> deg) & 1 == 0 {
+                m.push((deg, GF_2::ZERO));
+            } else {
+                m.push((deg, GF_2::ONE));
+            }
+        }
+
+        Poly::from_vec(m)
+    }
 }
 
 impl HasPrimitiveElement for GF_2_8 {
