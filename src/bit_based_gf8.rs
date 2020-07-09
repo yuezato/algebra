@@ -294,7 +294,7 @@ pub fn bitmatrix_dec3(
         }
     }
 
-    if topmost_parities.len() == 0 {
+    if topmost_parities.is_empty() {
         panic!("The topmost parity data was lost");
     }
 
@@ -347,7 +347,7 @@ pub fn to_bitmatrix6(
 
     let mslice: &mut [u8] = unsafe {
         let ptr: *mut u8 = output.as_ptr() as *mut u8;
-        let ptr: *mut u8 = ptr.offset((original_width * last_idx_of_erased_data) as isize);
+        let ptr: *mut u8 = ptr.add(original_width * last_idx_of_erased_data);
         std::slice::from_raw_parts_mut(ptr, original_width)
         // &mut output[original_width*last_idx..original_width*original_height];
     };
