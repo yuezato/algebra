@@ -297,10 +297,14 @@ pub fn bitmatrix_dec3(commands: Vec<Command>, data: &[BitEnc]) -> Vec<u8> {
 }
 
 // topmost parity が生き残っている場合
+// 今の実装だと不味い！！
+// データ行列の最後をやるのではなくて
+// データ行列の消失してる最後をやる必要がある
 pub fn to_bitmatrix6(
     commands: Vec<Command>,
     data: &[&[u8]],
     parity: &[Vec<u8>],
+    // data_erased_last_idx: usize <- こういうのを追加すれば良い？
 ) -> Vec<u8> {
     let width = data[0].len();
     // (data.len(), width) の行列のつもり
