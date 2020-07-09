@@ -342,8 +342,8 @@ pub fn decode_by_table3<F: FiniteField + ToString>(
 
 // t[i] = s[0][i] xor s[1][i] xor ... s[n][i]
 fn specialized_dot_prod_row_and_matrix_into(t: &mut [u8], s: &[&[u8]]) {
-    for i in 0..s.len() {
-        xor_vecs(t, s[i]);
+    for e in s {
+        xor_vecs(t, e);
     }
 }
 

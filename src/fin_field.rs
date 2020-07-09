@@ -220,7 +220,7 @@ impl GF_2_8 {
         let v = self.0;
 
         let mut m = Vec::new();
-            
+
         for deg in 0..8 {
             if (v >> deg) & 1 == 0 {
                 m.push((deg, GF_2::ZERO));
@@ -230,6 +230,12 @@ impl GF_2_8 {
         }
 
         Poly::from_vec(m)
+    }
+
+    pub fn coef(&self, degree: usize) -> u8 {
+        debug_assert!(degree < 8);
+
+        (self.0 >> degree) & 1
     }
 }
 
