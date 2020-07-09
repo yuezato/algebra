@@ -197,7 +197,7 @@ pub fn bitmatrix_enc2(
 
     let mut output = Vec::new();
 
-    for i in 0..(nr_data+nr_parity) {
+    for i in 0..(nr_data + nr_parity) {
         let mut tmp: Vec<Vec<u8>> = Vec::new();
         for _ in 0..8 {
             tmp.push(result.remove(0));
@@ -254,10 +254,7 @@ pub fn bitmatrix_dec2(commands: Vec<Command>, data: &[BitEnc]) -> Vec<u8> {
     to_bitmatrix5(commands, &encoded_data)
 }
 
-pub fn to_bitmatrix5(
-    commands: Vec<Command>,
-    data: &[&[u8]],
-) -> Vec<u8> {
+pub fn to_bitmatrix5(commands: Vec<Command>, data: &[&[u8]]) -> Vec<u8> {
     let width = data[0].len();
     // (data.len(), width) の行列のつもり
     let mut output: Vec<u8> = Vec::with_capacity(data.len() * width);
@@ -267,10 +264,10 @@ pub fn to_bitmatrix5(
 
     for c in commands {
         if let Command::Copy(from, to) = c {
-            let mslice: &mut [u8] = &mut output[(width*to)..(width*(to+1))];
+            let mslice: &mut [u8] = &mut output[(width * to)..(width * (to + 1))];
             mslice.copy_from_slice(data[from]);
         } else if let Command::Xor(from, to) = c {
-            let mslice: &mut [u8] = &mut output[(width*to)..(width*(to+1))];
+            let mslice: &mut [u8] = &mut output[(width * to)..(width * (to + 1))];
             xor_vec(mslice, data[from]);
         }
     }
@@ -278,12 +275,16 @@ pub fn to_bitmatrix5(
     output
 }
 
-pub fn bitmatrix_dec3(commands: Vec<Command>, data: &[BitEnc]) -> Vec<u8> {
+pub fn bitmatrix_dec3(
+    commands: Vec<Command>,
+    data: &[BitEnc],
+    last_idx_of_erased_data: usize,
+) -> Vec<u8> {
     let mut encoded_data: Vec<&[u8]> = Vec::new();
     let topmost_parity_idx = data.len();
 
     let mut topmost_parities: &[Vec<u8>] = &[];
-    
+
     for e in data {
         if e.0 == topmost_parity_idx {
             topmost_parities = &e.1;
@@ -293,7 +294,21 @@ pub fn bitmatrix_dec3(commands: Vec<Command>, data: &[BitEnc]) -> Vec<u8> {
         }
     }
 
-    to_bitmatrix6(commands, &encoded_data, topmost_parities)
+    if topmost_parities.len() == 0 {
+        panic!("The topmost parity data was lost");
+    }
+
+    to_bitmatrix6(
+        commands,
+        &encoded_data,
+        topmost_parities,
+        last_idx_of_erased_data,
+    )
+}
+
+pub fn last_index_of_erased_data(nr_data: usize, survived_data: &[BitEnc]) -> Option<usize> {
+    let survived_blocks: Vec<usize> = survived_data.iter().map(|e| e.0).collect();
+    (0..nr_data).filter(|i| !survived_blocks.contains(i)).max()
 }
 
 // topmost parity が生き残っている場合
@@ -301,10 +316,10 @@ pub fn bitmatrix_dec3(commands: Vec<Command>, data: &[BitEnc]) -> Vec<u8> {
 // データ行列の最後をやるのではなくて
 // データ行列の消失してる最後をやる必要がある
 pub fn to_bitmatrix6(
-    commands: Vec<Command>,
+    filtered_commands: Vec<Command>,
     data: &[&[u8]],
     parity: &[Vec<u8>],
-    // data_erased_last_idx: usize <- こういうのを追加すれば良い？
+    last_idx_of_erased_data: usize,
 ) -> Vec<u8> {
     let width = data[0].len();
     // (data.len(), width) の行列のつもり
@@ -315,12 +330,12 @@ pub fn to_bitmatrix6(
 
     // このcommandsには
     // 元データの最後の1列相当は含まれていないものとする
-    for c in commands {
+    for c in filtered_commands {
         if let Command::Copy(from, to) = c {
-            let mslice: &mut [u8] = &mut output[(width*to)..(width*(to+1))];
+            let mslice: &mut [u8] = &mut output[(width * to)..(width * (to + 1))];
             mslice.copy_from_slice(data[from]);
         } else if let Command::Xor(from, to) = c {
-            let mslice: &mut [u8] = &mut output[(width*to)..(width*(to+1))];
+            let mslice: &mut [u8] = &mut output[(width * to)..(width * (to + 1))];
             xor_vec(mslice, data[from]);
         }
     }
@@ -329,11 +344,10 @@ pub fn to_bitmatrix6(
     // topmost parity行の足し合わせで復元できる
     let original_width = width * 8;
     let original_height = data.len() / 8;
-    let last_idx = original_height - 1;
-    
+
     let mslice: &mut [u8] = unsafe {
         let ptr: *mut u8 = output.as_ptr() as *mut u8;
-        let ptr: *mut u8 = ptr.offset((original_width * last_idx) as isize);
+        let ptr: *mut u8 = ptr.offset((original_width * last_idx_of_erased_data) as isize);
         std::slice::from_raw_parts_mut(ptr, original_width)
         // &mut output[original_width*last_idx..original_width*original_height];
     };
@@ -344,16 +358,17 @@ pub fn to_bitmatrix6(
     // schedulerのoptimizedでなんとかならないもんかねえ
     // schedulerにはmatrixそのまま渡してるわけだから……
     for i in 0..parity.len() {
-        mslice[width*i..width*(i+1)].copy_from_slice(&parity[i]);
+        mslice[width * i..width * (i + 1)].copy_from_slice(&parity[i]);
     }
-    for i in 0..last_idx {
-        let slice = &output[original_width*i..original_width*(i+1)];
-        xor_vec(mslice, slice);
+    for i in 0..original_height {
+        if i != last_idx_of_erased_data {
+            let slice = &output[original_width * i..original_width * (i + 1)];
+            xor_vec(mslice, slice);
+        }
     }
 
     output
 }
-
 
 pub fn to_bitmatrix4(
     commands: Vec<Command>,
