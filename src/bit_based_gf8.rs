@@ -8,8 +8,28 @@ use crate::univariate_polynomial::*;
 fn xor_vec(v1: &mut [u8], v2: &[u8]) {
     debug_assert!(v1.len() == v2.len());
 
+    /*
     for i in 0..v1.len() {
         v1[i] ^= v2[i];
+    }
+     */
+
+    unsafe {
+        let (prefix1, shorts1, suffix1) = v1.align_to_mut::<u128>();
+        let (prefix2, shorts2, suffix2) = v2.align_to::<u128>();
+
+        if !prefix1.is_empty() || !suffix1.is_empty() || !prefix2.is_empty() || !suffix2.is_empty()
+        {
+            println!("slow implementation");
+            // slow implementation
+            for i in 0..v1.len() {
+                v1[i] ^= v2[i];
+            }
+        } else {
+            for i in 0..shorts1.len() {
+                shorts1[i] ^= shorts2[i];
+            }
+        }
     }
 }
 
@@ -83,7 +103,7 @@ pub fn expand(v: &[[u8; 8]]) -> Vec<Vec<u8>> {
     w
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Command {
     // Copy(from, to) where
     // 0 <= from < width of data matrix = 8 * width (of a generator),
@@ -92,6 +112,15 @@ pub enum Command {
 
     // Xor(from, to)
     Xor(usize, usize),
+}
+
+impl Command {
+    pub fn to(&self) -> usize {
+        match self {
+            Command::Copy(_, to) => *to,
+            Command::Xor(_, to) => *to,
+        }
+    }
 }
 
 pub fn matrix_to_commands(m: &Matrix<GF_2_8>) -> Vec<Command> {
@@ -131,7 +160,7 @@ pub fn gen_command(v: &[u8], to: usize) -> Vec<Command> {
     r
 }
 
-pub struct BitEnc(usize, Vec<Vec<u8>>);
+pub struct BitEnc(pub usize, Vec<Vec<u8>>);
 
 pub fn bitmatrix_enc1(m: &Matrix<GF_2_8>, data: &[u8]) -> Vec<BitEnc> {
     debug_assert!(data.len() % (m.width() * 8) == 0);
@@ -141,6 +170,34 @@ pub fn bitmatrix_enc1(m: &Matrix<GF_2_8>, data: &[u8]) -> Vec<BitEnc> {
     let mut output = Vec::new();
 
     for i in 0..m.height() {
+        let mut tmp: Vec<Vec<u8>> = Vec::new();
+        for _ in 0..8 {
+            tmp.push(result.remove(0));
+        }
+        output.push(BitEnc(i, tmp));
+    }
+
+    output
+}
+
+pub fn bitmatrix_enc2(
+    commands: Vec<Command>,
+    nr_data: usize,
+    nr_parity: usize,
+    data: &[u8],
+) -> Vec<BitEnc> {
+    debug_assert!(data.len() % (nr_data * 8) == 0);
+
+    let mut result: Vec<Vec<u8>> = to_bitmatrix4(
+        commands,
+        nr_data,
+        nr_parity,
+        &vec_to_quasi_matrix(&data, 8 * nr_data),
+    );
+
+    let mut output = Vec::new();
+
+    for i in 0..(nr_data+nr_parity) {
         let mut tmp: Vec<Vec<u8>> = Vec::new();
         for _ in 0..8 {
             tmp.push(result.remove(0));
@@ -170,6 +227,157 @@ pub fn bitmatrix_dec1(m: &Matrix<GF_2_8>, data: &[BitEnc]) -> Vec<u8> {
     }
 
     to_bitmatrix3(&invm, &encoded_data).concat()
+}
+
+pub fn inv_commands(m: &Matrix<GF_2_8>, data: &[BitEnc]) -> Vec<Command> {
+    let mut lives: Vec<bool> = vec![false; m.height()];
+    for e in data {
+        lives[e.0] = true;
+    }
+
+    let alive = AliveBlocks::from_boolvec(&lives);
+
+    let invm = decode_matrix(m.clone(), &alive).unwrap();
+
+    matrix_to_commands(&invm)
+}
+
+pub fn bitmatrix_dec2(commands: Vec<Command>, data: &[BitEnc]) -> Vec<u8> {
+    let mut encoded_data: Vec<&[u8]> = Vec::new();
+
+    for e in data {
+        for f in &e.1 {
+            encoded_data.push(f);
+        }
+    }
+
+    to_bitmatrix5(commands, &encoded_data)
+}
+
+pub fn to_bitmatrix5(
+    commands: Vec<Command>,
+    data: &[&[u8]],
+) -> Vec<u8> {
+    let width = data[0].len();
+    // (data.len(), width) の行列のつもり
+    let mut output: Vec<u8> = Vec::with_capacity(data.len() * width);
+    unsafe {
+        output.set_len(data.len() * width);
+    }
+
+    for c in commands {
+        if let Command::Copy(from, to) = c {
+            let mslice: &mut [u8] = &mut output[(width*to)..(width*(to+1))];
+            mslice.copy_from_slice(data[from]);
+        } else if let Command::Xor(from, to) = c {
+            let mslice: &mut [u8] = &mut output[(width*to)..(width*(to+1))];
+            xor_vec(mslice, data[from]);
+        }
+    }
+
+    output
+}
+
+pub fn bitmatrix_dec3(commands: Vec<Command>, data: &[BitEnc]) -> Vec<u8> {
+    let mut encoded_data: Vec<&[u8]> = Vec::new();
+    let topmost_parity_idx = data.len();
+
+    let mut topmost_parities: &[Vec<u8>] = &[];
+    
+    for e in data {
+        if e.0 == topmost_parity_idx {
+            topmost_parities = &e.1;
+        }
+        for f in &e.1 {
+            encoded_data.push(f);
+        }
+    }
+
+    to_bitmatrix6(commands, &encoded_data, topmost_parities)
+}
+
+// topmost parity が生き残っている場合
+pub fn to_bitmatrix6(
+    commands: Vec<Command>,
+    data: &[&[u8]],
+    parity: &[Vec<u8>],
+) -> Vec<u8> {
+    let width = data[0].len();
+    // (data.len(), width) の行列のつもり
+    let mut output: Vec<u8> = Vec::with_capacity(data.len() * width);
+    unsafe {
+        output.set_len(data.len() * width);
+    }
+
+    // このcommandsには
+    // 元データの最後の1列相当は含まれていないものとする
+    for c in commands {
+        if let Command::Copy(from, to) = c {
+            let mslice: &mut [u8] = &mut output[(width*to)..(width*(to+1))];
+            mslice.copy_from_slice(data[from]);
+        } else if let Command::Xor(from, to) = c {
+            let mslice: &mut [u8] = &mut output[(width*to)..(width*(to+1))];
+            xor_vec(mslice, data[from]);
+        }
+    }
+
+    // 最後の一列は data.len()-1 個のデータ行と
+    // topmost parity行の足し合わせで復元できる
+    let original_width = width * 8;
+    let original_height = data.len() / 8;
+    let last_idx = original_height - 1;
+    
+    let mslice: &mut [u8] = unsafe {
+        let ptr: *mut u8 = output.as_ptr() as *mut u8;
+        let ptr: *mut u8 = ptr.offset((original_width * last_idx) as isize);
+        std::slice::from_raw_parts_mut(ptr, original_width)
+        // &mut output[original_width*last_idx..original_width*original_height];
+    };
+
+    // BitEnc(usize, Vec<u8>) だと他の箇所ももっと楽にできたりしないかな
+    // 復元する時にbit化前行列が単位行列の一行だとそのままコピーで済んだりとか
+    // 今はcopyが1/8 * 8になってて、直接1やった方が速い気もする
+    // schedulerのoptimizedでなんとかならないもんかねえ
+    // schedulerにはmatrixそのまま渡してるわけだから……
+    for i in 0..parity.len() {
+        mslice[width*i..width*(i+1)].copy_from_slice(&parity[i]);
+    }
+    for i in 0..last_idx {
+        let slice = &output[original_width*i..original_width*(i+1)];
+        xor_vec(mslice, slice);
+    }
+
+    output
+}
+
+
+pub fn to_bitmatrix4(
+    commands: Vec<Command>,
+    nr_data: usize,
+    nr_parity: usize,
+    data: &[&[u8]],
+) -> Vec<Vec<u8>> {
+    let mut output: Vec<Vec<u8>> = Vec::new();
+    let width = data[0].len();
+
+    for _ in 0..(nr_data + nr_parity) * 8 {
+        let mut v = Vec::with_capacity(width);
+        unsafe {
+            v.set_len(width);
+        }
+        output.push(v);
+    }
+
+    // コマンドを解釈していく
+    for c in commands {
+        if let Command::Copy(from, to) = c {
+            output[to].copy_from_slice(data[from]);
+        } else if let Command::Xor(from, to) = c {
+            xor_vec(&mut output[to], data[from]);
+        }
+    }
+
+    output
 }
 
 pub fn to_bitmatrix3(m: &Matrix<GF_2_8>, data: &[&[u8]]) -> Vec<Vec<u8>> {
