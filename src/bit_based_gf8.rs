@@ -5,7 +5,6 @@ use crate::matrix::*;
 use crate::reed_solomon::*;
 use crate::univariate_polynomial::*;
 use fast_array_ops::*;
-use std::arch::x86_64::*;
 
 pub fn xor_vec(v1: &mut [u8], v2: &[u8]) {
     debug_assert!(v1.len() == v2.len());
@@ -35,8 +34,11 @@ pub fn xor_vec(v1: &mut [u8], v2: &[u8]) {
     }
 }
 
+/*
 #[target_feature(enable = "avx2")]
 pub unsafe fn avx2_xor1(dst: &mut [u8], src: &[u8]) {
+    use std::arch::x86_64::*;
+
     debug_assert!(dst.len() == src.len());
     debug_assert!(dst.len() % 32 == 0);
 
@@ -52,6 +54,7 @@ pub unsafe fn avx2_xor1(dst: &mut [u8], src: &[u8]) {
         si = si.add(1);
     }
 }
+ */
 
 fn make_sched(v: &[u8]) -> Vec<usize> {
     let mut r = Vec::new();
