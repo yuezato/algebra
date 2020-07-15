@@ -4,8 +4,10 @@ use crate::fin_field::*;
 use crate::matrix::*;
 use crate::reed_solomon::*;
 use crate::univariate_polynomial::*;
+use fast_array_ops::*;
+use std::arch::x86_64::*;
 
-fn xor_vec(v1: &mut [u8], v2: &[u8]) {
+pub fn xor_vec(v1: &mut [u8], v2: &[u8]) {
     debug_assert!(v1.len() == v2.len());
 
     /*
@@ -30,6 +32,24 @@ fn xor_vec(v1: &mut [u8], v2: &[u8]) {
                 shorts1[i] ^= shorts2[i];
             }
         }
+    }
+}
+
+#[target_feature(enable = "avx2")]
+pub unsafe fn avx2_xor1(dst: &mut [u8], src: &[u8]) {
+    debug_assert!(dst.len() == src.len());
+    debug_assert!(dst.len() % 32 == 0);
+
+    let mut di: *mut __m256i = dst.as_mut_ptr() as *mut __m256i;
+    let mut si: *const __m256i = src.as_ptr() as *const __m256i;
+
+    for _ in 0..(dst.len() / 32) {
+        let d = _mm256_load_si256(di);
+        let s = _mm256_load_si256(si);
+        let xored = _mm256_xor_si256(d, s);
+        _mm256_store_si256(di, xored);
+        di = di.add(1);
+        si = si.add(1);
     }
 }
 
@@ -208,6 +228,34 @@ pub fn bitmatrix_enc2(
     output
 }
 
+pub fn bitmatrix_enc3(
+    commands: Vec<Command>,
+    nr_data: usize,
+    nr_parity: usize,
+    data: &[u8],
+) -> Vec<BitEnc> {
+    debug_assert!(data.len() % (nr_data * 8) == 0);
+
+    let mut result: Vec<Vec<u8>> = to_bitmatrix4_optim(
+        commands,
+        nr_data,
+        nr_parity,
+        &vec_to_quasi_matrix(&data, 8 * nr_data),
+    );
+
+    let mut output = Vec::new();
+
+    for i in 0..(nr_data + nr_parity) {
+        let mut tmp: Vec<Vec<u8>> = Vec::new();
+        for _ in 0..8 {
+            tmp.push(result.remove(0));
+        }
+        output.push(BitEnc(i, tmp));
+    }
+
+    output
+}
+
 pub fn bitmatrix_dec1(m: &Matrix<GF_2_8>, data: &[BitEnc]) -> Vec<u8> {
     let mut lives: Vec<bool> = vec![false; m.height()];
     for e in data {
@@ -265,10 +313,12 @@ pub fn to_bitmatrix5(commands: Vec<Command>, data: &[&[u8]]) -> Vec<u8> {
     for c in commands {
         if let Command::Copy(from, to) = c {
             let mslice: &mut [u8] = &mut output[(width * to)..(width * (to + 1))];
-            mslice.copy_from_slice(data[from]);
+            // mslice.copy_from_slice(data[from]);
+            fast_array_copy(mslice, data[from]);
         } else if let Command::Xor(from, to) = c {
             let mslice: &mut [u8] = &mut output[(width * to)..(width * (to + 1))];
-            xor_vec(mslice, data[from]);
+            // xor_vec(mslice, data[from]);
+            fast_array_xor(mslice, data[from]);
         }
     }
 
@@ -333,10 +383,11 @@ pub fn to_bitmatrix6(
     for c in filtered_commands {
         if let Command::Copy(from, to) = c {
             let mslice: &mut [u8] = &mut output[(width * to)..(width * (to + 1))];
-            mslice.copy_from_slice(data[from]);
+            // mslice.copy_from_slice(data[from]);
+            fast_array_copy(mslice, &data[from]);
         } else if let Command::Xor(from, to) = c {
             let mslice: &mut [u8] = &mut output[(width * to)..(width * (to + 1))];
-            xor_vec(mslice, data[from]);
+            fast_array_xor(mslice, data[from]);
         }
     }
 
@@ -358,12 +409,13 @@ pub fn to_bitmatrix6(
     // schedulerのoptimizedでなんとかならないもんかねえ
     // schedulerにはmatrixそのまま渡してるわけだから……
     for i in 0..parity.len() {
-        mslice[width * i..width * (i + 1)].copy_from_slice(&parity[i]);
+        // mslice[width * i..width * (i + 1)].copy_from_slice(&parity[i]);
+        fast_array_copy(&mut mslice[width * i..width * (i + 1)], &parity[i]);
     }
     for i in 0..original_height {
         if i != last_idx_of_erased_data {
             let slice = &output[original_width * i..original_width * (i + 1)];
-            xor_vec(mslice, slice);
+            fast_array_xor(mslice, slice);
         }
     }
 
@@ -393,6 +445,35 @@ pub fn to_bitmatrix4(
             output[to].copy_from_slice(data[from]);
         } else if let Command::Xor(from, to) = c {
             xor_vec(&mut output[to], data[from]);
+        }
+    }
+
+    output
+}
+
+pub fn to_bitmatrix4_optim(
+    commands: Vec<Command>,
+    nr_data: usize,
+    nr_parity: usize,
+    data: &[&[u8]],
+) -> Vec<Vec<u8>> {
+    let mut output: Vec<Vec<u8>> = Vec::new();
+    let width = data[0].len();
+
+    for _ in 0..(nr_data + nr_parity) * 8 {
+        let mut v = Vec::with_capacity(width);
+        unsafe {
+            v.set_len(width);
+        }
+        output.push(v);
+    }
+
+    // コマンドを解釈していく
+    for c in commands {
+        if let Command::Copy(from, to) = c {
+            fast_array_copy(&mut output[to], data[from]);
+        } else if let Command::Xor(from, to) = c {
+            fast_array_xor(&mut output[to], data[from]);
         }
     }
 

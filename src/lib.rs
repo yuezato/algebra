@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate lazy_static;
+extern crate fast_array_ops;
 
 pub mod bit_based_gf8;
 pub mod erasure_code;
