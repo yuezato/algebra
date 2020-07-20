@@ -365,9 +365,6 @@ pub fn last_index_of_erased_data(nr_data: usize, survived_data: &[BitEnc]) -> Op
 }
 
 // topmost parity が生き残っている場合
-// 今の実装だと不味い！！
-// データ行列の最後をやるのではなくて
-// データ行列の消失してる最後をやる必要がある
 pub fn to_bitmatrix6(
     filtered_commands: Vec<Command>,
     data: &[&[u8]],
@@ -972,6 +969,88 @@ mod tests {
         let decoded = bitmatrix_dec1(&m, &encoded);
 
         assert!(data == decoded);
+    }
+
+    fn bit_matrix_prod(x: [u8; 8], y: [u8; 8]) -> [u8; 8] {
+        let mut z: [u8; 8] = [0, 0, 0, 0, 0, 0, 0, 0];
+
+        for i in 0..8 {
+            for j in 0..8 {
+                for k in 0..8 {
+                    let v = ((x[i] >> (7 - j)) & 1) & ((y[j] >> (7 - k)) & 1);
+                    z[i] ^= v << (7 - k);
+                }
+            }
+        }
+
+        z
+    }
+
+    fn prod_by_bitmatrix(x: [u8; 8], y: GF_2_8) -> GF_2_8 {
+        let y: u8 = y.into();
+        let mut z: u8 = 0;
+
+        for i in 0..8 {
+            for j in 0..8 {
+                let v = ((x[i] >> (7 - j)) & 1) & ((y >> (7 - j)) & 1);
+                z ^= v << (7 - i);
+            }
+        }
+
+        z.into()
+    }
+
+    #[test]
+    fn fast_conv_test() {
+        let i1 = GF_2_8_impl::new(ppoly());
+        let i2 = Bit_GF_2_8_impl::build(ppoly());
+
+        for a in GF_2_8::enumerate() {
+            let a_bitmatrix = i2.fast_conv(a.into());
+            for b in GF_2_8::enumerate() {
+                let ab = prod_by_bitmatrix(a_bitmatrix, b);
+                let c = a * b;
+
+                assert!(
+                    ab == c,
+                    "a = {:?}, b = {:?}, r1 = {:?}, r2 = {:?}",
+                    a,
+                    b,
+                    ab,
+                    c
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn hom_test() {
+        let i1 = GF_2_8_impl::new(ppoly());
+        let i2 = Bit_GF_2_8_impl::build(ppoly());
+
+        for a in GF_2_8::enumerate() {
+            let a_bitmatrix = i2.fast_conv(a.into());
+            for b in GF_2_8::enumerate() {
+                let c = i1.mul(a, b);
+
+                let b_bitmatrix = i2.fast_conv(b.into());
+
+                let ab_bitmatrix = bit_matrix_prod(a_bitmatrix, b_bitmatrix);
+                let c_bitmatrix = i2.fast_conv(c.into());
+
+                assert!(
+                    ab_bitmatrix == c_bitmatrix,
+                    "a = {:?}, b = {:?}, c = {:?}, a_bit = {:?}, b_bit = {:?}, ab = {:?}, c = {:?}",
+                    a,
+                    b,
+                    c,
+                    a_bitmatrix,
+                    b_bitmatrix,
+                    ab_bitmatrix,
+                    c_bitmatrix
+                );
+            }
+        }
     }
 
     #[test]

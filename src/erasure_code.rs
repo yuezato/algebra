@@ -117,6 +117,7 @@ pub fn decode_matrix<F: FiniteField + ToString>(
     // 前方優先にするのはできるだけ単位行列に近づけたいから
     let mut remove_blocks: Vec<usize> = alive.alive_blocks()[generator.width()..].to_vec();
     remove_blocks.append(&mut alive.erased_blocks());
+
     generator.drop_columns(remove_blocks);
 
     generator.inverse()
