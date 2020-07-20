@@ -176,6 +176,103 @@ pub fn to_bitmatrix_pad<'a>(
     output
 }
 
+pub fn to_bitmatrix_pad_optim<'a>(
+    commands: Vec<Command>,
+    nr_data: usize,
+    nr_parity: usize,
+    data: &[Row<'a>],
+    orig_data: &[u8],
+    original_len: u32,
+) -> Vec<Vec<u8>> {
+    let mut output: Vec<Vec<u8>> = Vec::new();
+    let width = data[0].len;
+
+    // 符号化済みデータ行列の初期化
+    let mut cur = 0;
+    let mut residual = original_len as usize;
+    for block_id in 0..nr_data {
+        let mut v: Vec<u8> = vec![0; width * 8 + 7];       
+
+        if residual >= width * 8 {
+            normal_array_copy(&mut v[0..width*8], &orig_data[cur..cur+width*8]);
+            residual -= width * 8;
+            cur += width * 8;
+        } else {
+            normal_array_copy(&mut v[0..residual], &orig_data[cur..cur+residual]);
+            residual = 0;
+        }
+        
+        let bytes = (EncInfo {
+            nr_data: nr_data.try_into().unwrap(),
+            nr_parity: nr_parity.try_into().unwrap(),
+            original_len,
+            block_id: block_id.try_into().unwrap(),
+        })
+        .to_bytes();
+        v[width * 8 + 0] = bytes[0];
+        v[width * 8 + 1] = bytes[1];
+        v[width * 8 + 2] = bytes[2];
+        v[width * 8 + 3] = bytes[3];
+        v[width * 8 + 4] = bytes[4];
+        v[width * 8 + 5] = bytes[5];
+        v[width * 8 + 6] = bytes[6];
+
+        output.push(v);
+    }
+    
+    for block_id in nr_data..nr_data+nr_parity {
+        let mut v: Vec<u8> = vec![0; width * 8 + 7];
+        let bytes = (EncInfo {
+            nr_data: nr_data.try_into().unwrap(),
+            nr_parity: nr_parity.try_into().unwrap(),
+            original_len,
+            block_id: block_id.try_into().unwrap(),
+        })
+        .to_bytes();
+        v[width * 8 + 0] = bytes[0];
+        v[width * 8 + 1] = bytes[1];
+        v[width * 8 + 2] = bytes[2];
+        v[width * 8 + 3] = bytes[3];
+        v[width * 8 + 4] = bytes[4];
+        v[width * 8 + 5] = bytes[5];
+        v[width * 8 + 6] = bytes[6];
+
+        output.push(v);
+    }
+
+    // コマンドを解釈していく
+    // ただし to が data の場合には既に完了しているので
+    // 何もしない
+    for c in commands {
+        if c.to() / 8 < nr_data {
+            continue;
+        }
+        if let Command::Copy(from, to) = c {
+            let len = data[from].len;
+
+            let src = &data[from].inner[0..len];
+
+            let to1 = to / 8;
+            let to2 = to % 8;
+            let dst = &mut output[to1][to2 * width..to2 * width + len];
+
+            normal_array_copy(dst, src);
+        } else if let Command::Xor(from, to) = c {
+            let len = data[from].len;
+
+            let src = &data[from].inner[0..len];
+
+            let to1 = to / 8;
+            let to2 = to % 8;
+            let dst = &mut output[to1][to2 * width..to2 * width + len];
+
+            normal_array_xor(dst, src);
+        }
+    }
+
+    output
+}
+
 pub fn bitmatrix_enc_with_info(
     m: &Matrix<GF_2_8>,
     nr_data: usize,
@@ -190,6 +287,25 @@ pub fn bitmatrix_enc_with_info(
         nr_data,
         nr_parity,
         &splitted,
+        data.len().try_into().unwrap(),
+    )
+}
+
+pub fn bitmatrix_enc_with_info_optim(
+    m: &Matrix<GF_2_8>,
+    nr_data: usize,
+    nr_parity: usize,
+    data: &[u8],
+) -> Vec<Vec<u8>> {
+    let commands = matrix_to_commands(&m);
+    let splitted = split_and_padding(&data, 8 * nr_data);
+
+    to_bitmatrix_pad_optim(
+        commands,
+        nr_data,
+        nr_parity,
+        &splitted,
+        data,
         data.len().try_into().unwrap(),
     )
 }
@@ -608,6 +724,30 @@ mod tests {
             let data: Vec<u8> = (0..i * 1024).map(|_| rand::random::<u8>()).collect();
 
             let mut encoded = bitmatrix_enc_with_info(&vanderm, nr_data, nr_parity, &data);
+
+            // データが4つ消失
+            encoded.remove(3);
+            encoded.remove(2);
+            encoded.remove(1);
+            encoded.remove(0);
+
+            let decoded = bitmatrix_dec_with_info_optim(&vanderm, &encoded);
+
+            assert_eq!(data, decoded);
+        }
+    }
+
+    #[test]
+    fn optimenc_optimdec_test1() {
+        let nr_data = 10;
+        let nr_parity = 4;
+
+        let vanderm = make_vandermonde_matrix(nr_data, nr_parity);
+
+        for i in 1..100 {
+            let data: Vec<u8> = (0..i * 1024).map(|_| rand::random::<u8>()).collect();
+
+            let mut encoded = bitmatrix_enc_with_info_optim(&vanderm, nr_data, nr_parity, &data);
 
             // データが4つ消失
             encoded.remove(3);
