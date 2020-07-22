@@ -144,6 +144,13 @@ impl Command {
             Command::Xor(_, to) => *to,
         }
     }
+
+    pub fn from(&self) -> usize {
+        match self {
+            Command::Copy(from, _) => *from,
+            Command::Xor(from, _) => *from,
+        }
+    }
 }
 
 pub fn matrix_to_commands(m: &Matrix<GF_2_8>) -> Vec<Command> {

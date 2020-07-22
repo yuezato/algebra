@@ -12,6 +12,6 @@ pub mod reed_solomon;
 pub mod univariate_polynomial;
 pub mod vandermonde;
 pub mod vecteur;
+pub mod mebc;
 
-#[cfg(test)]
 extern crate rand;

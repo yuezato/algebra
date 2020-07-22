@@ -9,6 +9,4 @@ edition = "2018"
 [dependencies]
 lazy_static = "1.4"
 fast_array_ops = { git = "https://github.com/yuezato/fast_array_ops" }
-
-[dev-dependencies]
 rand = "0.7"

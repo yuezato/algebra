@@ -432,6 +432,8 @@ pub fn bitmatrix_dec_with_info_optim(m: &Matrix<GF_2_8>, data: &Vec<Vec<u8>>) ->
         for c in commands {
             if !(an_erased_data_id * 8..(an_erased_data_id + 1) * 8).contains(&c.to()) {
                 filtered_commands.push(c);
+            } else {
+                println!("{:?}", c);
             }
         }
         with_topmost_parity(filtered_commands, &data2, &parity, an_erased_data_id)
